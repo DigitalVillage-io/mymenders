@@ -41,6 +41,11 @@ const CLUSTER_CIRCLE_LAYER_ID = 'vendor-clusters';
 const CLUSTER_COUNT_LAYER_ID = 'vendor-cluster-count';
 const UNCLUSTERED_LAYER_ID = 'vendor-points';
 const ADDRESS_PLACEHOLDER = 'address not available';
+const MAP_SELECTED_ADDRESS_PLACEHOLDER = 'location selected on map';
+const ADDRESS_PLACEHOLDERS = new Set([
+  ADDRESS_PLACEHOLDER,
+  MAP_SELECTED_ADDRESS_PLACEHOLDER,
+]);
 const MAP_CARD_WIDTH_PX = 360;
 const BASEMAP_STYLES = [
   { id: 'positron', label: 'Positron', styleUrl: 'https://tiles.openfreemap.org/styles/positron' },
@@ -161,7 +166,7 @@ const formatDistance = (distanceKm?: number) => {
 };
 
 const shouldResolveVendorAddress = (address?: string) =>
-  (address || '').trim().toLowerCase() === ADDRESS_PLACEHOLDER;
+  ADDRESS_PLACEHOLDERS.has((address || '').trim().toLowerCase());
 
 const buildGoogleMapsDirectionsUrl = (vendor: Vendor) => {
   const latitude = parseCoordinate(vendor.latitude);

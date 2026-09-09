@@ -65,6 +65,11 @@ const getPinColor = (level: string) => {
 
 const DEFAULT_CENTER: [number, number] = [51.505, -0.09]; // London
 
+const coordinatesMatch = (
+  first: [number, number] | null,
+  second: [number, number] | null,
+) => Boolean(first && second && first[0] === second[0] && first[1] === second[1]);
+
 // ---------------------------------------------------------------------------
 // react-select helpers
 // ---------------------------------------------------------------------------
@@ -224,6 +229,10 @@ export function AddMenderPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const addressInputRef = useRef<HTMLInputElement>(null);
   const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestSelectedCoordinatesRef = useRef<[number, number] | null>(null);
+  const pendingReverseGeocodeRef = useRef<Promise<string | null> | null>(null);
+  const reverseGeocodeRequestIdRef = useRef(0);
+  const addressManuallyEditedRef = useRef(false);
 
   // Keep a ref copy of position so GMaps callbacks always read the latest value
   const positionRef = useRef(position);
@@ -250,24 +259,53 @@ export function AddMenderPage() {
   }, []);
 
   const reverseGeocode = useCallback(
-    (lat: number, lng: number) => {
+    (lat: number, lng: number): Promise<string | null> => {
       disableAddressSuggestions();
 
-      // Try Google first
-      if ((window as any).google?.maps) {
-        const geocoder = new (window as any).google.maps.Geocoder();
-        geocoder.geocode({ location: { lat, lng } }, (results: any, status: string) => {
-          if (status === 'OK' && results?.[0]?.formatted_address) {
-            setAddress(results[0].formatted_address);
-          } else {
-            // Fall back to Geoapify
-            geoReverse(lat, lng).then((addr) => { if (addr) setAddress(addr); });
+      const requestId = ++reverseGeocodeRequestIdRef.current;
+      const coordinates: [number, number] = [lat, lng];
+
+      const lookup = new Promise<string | null>((resolve) => {
+        const useGeoapify = () => {
+          geoReverse(lat, lng)
+            .then(resolve)
+            .catch(() => resolve(null));
+        };
+
+        // Try Google first.
+        if ((window as any).google?.maps) {
+          try {
+            const geocoder = new (window as any).google.maps.Geocoder();
+            geocoder.geocode({ location: { lat, lng } }, (results: any, status: string) => {
+              if (status === 'OK' && results?.[0]?.formatted_address) {
+                resolve(results[0].formatted_address);
+              } else {
+                // Fall back to Geoapify.
+                useGeoapify();
+              }
+            });
+          } catch {
+            useGeoapify();
           }
-        });
-      } else {
-        // Google not loaded — use Geoapify directly
-        geoReverse(lat, lng).then((addr) => { if (addr) setAddress(addr); });
-      }
+        } else {
+          // Google not loaded — use Geoapify directly.
+          useGeoapify();
+        }
+      }).then((resolvedAddress) => {
+        const isCurrentRequest =
+          requestId === reverseGeocodeRequestIdRef.current &&
+          coordinatesMatch(latestSelectedCoordinatesRef.current, coordinates);
+
+        // A late response must not replace the address for a newer pin, or a
+        // manual edit made while this lookup was pending.
+        if (isCurrentRequest && resolvedAddress && !addressManuallyEditedRef.current) {
+          setAddress(resolvedAddress);
+        }
+
+        return resolvedAddress;
+      });
+
+      return lookup;
     },
     [disableAddressSuggestions],
   );
@@ -276,11 +314,17 @@ export function AddMenderPage() {
   const goToLocation = useCallback(
     (lat: number, lng: number, addr?: string) => {
       disableAddressSuggestions();
+      latestSelectedCoordinatesRef.current = [lat, lng];
       setPosition([lat, lng]);
       if (addr) {
+        ++reverseGeocodeRequestIdRef.current;
+        pendingReverseGeocodeRef.current = null;
+        addressManuallyEditedRef.current = false;
         setAddress(addr);
       } else {
-        reverseGeocode(lat, lng);
+        addressManuallyEditedRef.current = false;
+        setAddress('');
+        pendingReverseGeocodeRef.current = reverseGeocode(lat, lng);
       }
       panMapTo(lat, lng);
     },
@@ -372,10 +416,7 @@ export function AddMenderPage() {
             const lat = location.lat();
             const lng = location.lng();
             const addr = place.formatted_address || place.name || addressInputRef.current?.value || '';
-            disableAddressSuggestions();
-            setAddress(addr);
-            setPosition([lat, lng]);
-            panMapTo(lat, lng);
+            goToLocation(lat, lng, addr);
             setMapError(null);
           });
           setPlacesReady(true);
@@ -395,9 +436,7 @@ export function AddMenderPage() {
           if (!evt.latLng) return;
           const lat = evt.latLng.lat();
           const lng = evt.latLng.lng();
-          setPosition([lat, lng]);
-          panMapTo(lat, lng);
-          reverseGeocode(lat, lng);
+          goToLocation(lat, lng);
         });
 
         // ---- Marker drag ----
@@ -406,9 +445,7 @@ export function AddMenderPage() {
           if (!pos) return;
           const lat = pos.lat();
           const lng = pos.lng();
-          setPosition([lat, lng]);
-          panMapTo(lat, lng);
-          reverseGeocode(lat, lng);
+          goToLocation(lat, lng);
         });
       })
       .catch((err: any) => {
@@ -499,7 +536,18 @@ export function AddMenderPage() {
       return;
     }
 
-    const resolvedAddress = address.trim() || 'Location selected on map';
+    const selectedPosition = position;
+    const selectedCoordinates = latestSelectedCoordinatesRef.current;
+    const pendingLookup = pendingReverseGeocodeRef.current;
+    let lookedUpAddress: string | null = null;
+
+    if (pendingLookup && coordinatesMatch(selectedCoordinates, selectedPosition)) {
+      lookedUpAddress = await pendingLookup;
+    }
+
+    const resolvedAddress =
+      (addressManuallyEditedRef.current ? address.trim() : lookedUpAddress || address.trim()) ||
+      'Location selected on map';
     const normalizedReview = Number.isFinite(reviewStars) ? Math.min(5, Math.max(0, reviewStars)) : 0;
 
     const payload = {
@@ -508,8 +556,8 @@ export function AddMenderPage() {
       entry_level: entryLevel,
       types,
       address: resolvedAddress,
-      latitude: position[0],
-      longitude: position[1],
+      latitude: selectedPosition[0],
+      longitude: selectedPosition[1],
       phone,
       contact: phone,
       website: onlinePresence || undefined,
@@ -836,6 +884,7 @@ export function AddMenderPage() {
                   onFocus={enableAddressSuggestions}
                   onChange={(e) => {
                     enableAddressSuggestions();
+                    addressManuallyEditedRef.current = true;
                     setAddress(e.target.value);
                   }}
                   placeholder="Search an address to place the pin"
@@ -845,7 +894,10 @@ export function AddMenderPage() {
               ) : (
                 <GeoAutocomplete
                   value={address}
-                  onChange={(val) => setAddress(val)}
+                  onChange={(val) => {
+                    addressManuallyEditedRef.current = true;
+                    setAddress(val);
+                  }}
                   onSelect={(s) => goToLocation(s.lat, s.lng, s.formatted)}
                   suggestionsEnabled={addressSuggestionsEnabled}
                   onManualInputFocus={enableAddressSuggestions}
