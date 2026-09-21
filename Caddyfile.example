@@ -1,5 +1,5 @@
-# Replace mymenders.example.com with the real domain; Caddy provisions HTTPS automatically.
-mymenders.example.com {
+# Live site: mymender.vlge.com. Caddy provisions HTTPS automatically.
+mymender.vlge.com {
 	encode zstd gzip
 	reverse_proxy 127.0.0.1:3003
 }

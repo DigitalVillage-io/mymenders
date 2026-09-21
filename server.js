@@ -1,6 +1,6 @@
 // Production server for self-hosting (pm2 + Caddy). Mirrors the Vercel setup:
 // serves the Vite build from dist/ with SPA fallback and mounts the API routes.
-import { createReadStream } from 'node:fs';
+import { createReadStream, existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
@@ -189,6 +189,11 @@ const server = http.createServer(async (req, res) => {
     res.end();
   }
 });
+
+if (!existsSync(path.join(DIST_DIR, 'index.html'))) {
+  console.error(`FATAL: ${DIST_DIR}/index.html not found. Run 'npm run build' before starting the server.`);
+  process.exit(1);
+}
 
 server.listen(PORT, HOST, () => {
   console.log(`mymenders listening on http://${HOST}:${PORT}`);
