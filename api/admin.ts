@@ -8,3 +8,4 @@ const getAdminPath = (request: Request) => {
 export const GET = (request: Request) => handleAdminRequest(request, getAdminPath(request));
 export const POST = (request: Request) => handleAdminRequest(request, getAdminPath(request));
 export const PATCH = (request: Request) => handleAdminRequest(request, getAdminPath(request));
+export const DELETE = (request: Request) => handleAdminRequest(request, getAdminPath(request));

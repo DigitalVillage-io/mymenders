@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import { insertVendor, updateVendorAddress, ValidationError } from './lib/db.js';
+import { insertVendor, publicVendor, ValidationError } from './lib/db.js';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -9,8 +9,8 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const result = await pool.query("SELECT * FROM vendors WHERE status = 'active' ORDER BY id");
-    return new Response(JSON.stringify(result.rows), {
+    const result = await pool.query("SELECT * FROM vendors WHERE status = 'active' AND is_deleted = false ORDER BY id");
+    return new Response(JSON.stringify(result.rows.map(publicVendor)), {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (err) {
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
 
     const vendor = await insertVendor(pool, body);
 
-    return new Response(JSON.stringify(vendor), {
+    return new Response(JSON.stringify(publicVendor(vendor)), {
       status: 201,
       headers: { 'Content-Type': 'application/json' },
     });
@@ -47,26 +47,5 @@ export async function POST(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
-  try {
-    const body = await request.json();
-    const vendor = await updateVendorAddress(pool, body);
-
-    return new Response(JSON.stringify(vendor), {
-      headers: { 'Content-Type': 'application/json' },
-    });
-  } catch (err) {
-    if (err instanceof ValidationError) {
-      const status = err.message === 'Vendor not found' ? 404 : 400;
-      return new Response(JSON.stringify({ error: err.message }), {
-        status,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    console.error('Error updating vendor:', err);
-    return new Response(JSON.stringify({ error: 'Failed to update vendor' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-}
+// Location updates are intentionally admin-only. The former unauthenticated
+// PATCH accepted an id and could rewrite a public record's address.

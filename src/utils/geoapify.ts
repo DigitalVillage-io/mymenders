@@ -10,6 +10,7 @@ export interface GeoapifySuggestion {
   housenumber?: string;
   postcode?: string;
   country?: string;
+  countryCode?: string;
 }
 
 export interface GeoapifyResult {
@@ -28,6 +29,7 @@ type GeoapifyRawResult = {
   housenumber?: string;
   postcode?: string;
   country?: string;
+  country_code?: string;
 };
 
 const toSuggestion = (raw: GeoapifyRawResult): GeoapifySuggestion | null => {
@@ -48,6 +50,7 @@ const toSuggestion = (raw: GeoapifyRawResult): GeoapifySuggestion | null => {
     housenumber: raw.housenumber,
     postcode: raw.postcode,
     country: raw.country,
+    countryCode: raw.country_code,
   };
 };
 
@@ -80,17 +83,23 @@ export async function autocomplete(query: string): Promise<GeoapifySuggestion[]>
 }
 
 /** Reverse geocode: lat/lng → address string */
-export async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
+export async function reverseGeocodeDetails(lat: number, lng: number): Promise<GeoapifySuggestion | null> {
   const url = `${BASE}/reverse?lat=${lat}&lon=${lng}&format=json&apiKey=${GEOAPIFY_KEY}`;
 
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
-    return readResults(data)[0]?.formatted || null;
+    return toSuggestion(readResults(data)[0] || {});
   } catch {
     return null;
   }
+}
+
+/** Reverse geocode: lat/lng → address string */
+export async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
+  const result = await reverseGeocodeDetails(lat, lng);
+  return result?.formatted || null;
 }
 
 /** Forward geocode: address string → { lat, lng, formatted } */

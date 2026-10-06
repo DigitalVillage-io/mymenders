@@ -1,11 +1,12 @@
 export const VENDOR_TAXONOMY = {
   types: [
+    { id: 'shop_workshop', label: 'Shop / Workshop' },
     { id: 'home', label: 'Home' },
-    { id: 'itinerant', label: 'Itinerant' },
-    { id: 'shop', label: 'Shop' },
-    { id: 'workshop', label: 'Workshop' },
-    { id: 'chain', label: 'Chain' },
-    { id: 'dry_clean', label: 'Dry-clean' },
+    { id: 'brand_in_store_services', label: 'Brand In Store Services' },
+    { id: 'mobile_itinerant', label: 'Mobile / Itinerant' },
+    { id: 'chains_networks', label: 'Chains and Networks' },
+    { id: 'dry_cleaners', label: 'Dry-cleaners' },
+    { id: 'shoe_leather_accessories', label: 'Shoe and Leather Accessories' },
   ],
   categories: [
     {
@@ -61,9 +62,14 @@ const TAXONOMY_OPTIONS = {
 
 const LEGACY_ALIASES = {
   types: {
-    'Dry Clean': 'dry_clean',
-    'Dry-clean': 'dry_clean',
-    'Dry clean': 'dry_clean',
+    shop: 'shop_workshop',
+    workshop: 'shop_workshop',
+    itinerant: 'mobile_itinerant',
+    chain: 'chains_networks',
+    dry_clean: 'dry_cleaners',
+    'Dry Clean': 'dry_cleaners',
+    'Dry-clean': 'dry_cleaners',
+    'Dry clean': 'dry_cleaners',
   },
   categories: {
     'Alterations and Customising': 'alterations_customising',
@@ -168,4 +174,24 @@ export const getTaxonomyLabel = (group, value) => {
 
   const normalizedValue = normalizeTaxonomyValue(group, trimmedValue) || trimmedValue;
   return getTaxonomyOptions(group).find((option) => option.id === normalizedValue)?.label || trimmedValue;
+};
+
+// Studio Type colors are application configuration rather than vendor data.
+// The first type on a vendor determines its marker color.
+export const STUDIO_TYPE_COLORS = Object.freeze({
+  shop_workshop: '#7F00FF',
+  home: '#4B0082',
+  brand_in_store_services: '#2563EB',
+  mobile_itinerant: '#16A34A',
+  chains_networks: '#EAB308',
+  dry_cleaners: '#F97316',
+  shoe_leather_accessories: '#DC2626',
+});
+
+export const STUDIO_TYPE_FALLBACK_COLOR = '#64748B';
+
+export const getStudioTypeColor = (value) => {
+  const firstValue = Array.isArray(value) ? value[0] : value;
+  const normalizedValue = normalizeTaxonomyValue('types', firstValue);
+  return STUDIO_TYPE_COLORS[normalizedValue] || STUDIO_TYPE_FALLBACK_COLOR;
 };

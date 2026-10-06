@@ -4,6 +4,7 @@ import { activateVendor, safeParseMetadata, updateVendor, ValidationError } from
 import { normalizeTaxonomyValues } from '../../shared/vendorTaxonomy.js';
 
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const PAGE_SIZE = 25;
 const COOKIE = 'mymenders_admin';
 const secret = () => process.env.ADMIN_JWT_SECRET || '';
 const secureCookie = () => process.env.NODE_ENV === 'production';
@@ -48,10 +49,13 @@ const adminVendor = (row) => {
     types: normalizeTaxonomyValues('types', metadata.types || []),
     categories: normalizeTaxonomyValues('categories', metadata.categories || []),
     regional_techniques: normalizeTaxonomyValues('regional_techniques', metadata.regional_techniques || []),
-    online_presence: metadata.online_presence || row.website || '',
+    website: row.website || row.online_presence || metadata.online_presence || metadata.website || '',
+    social: row.social || '',
+    email: row.email || '',
     review_text: metadata.review_text || '',
     rating: metadata.rating ?? 0,
     rating_count: metadata.rating_count ?? 0,
+    location_visibility: row.location_visibility === 'approx' ? 'approx' : 'exact',
   };
 };
 
@@ -67,19 +71,51 @@ export async function handleAdminRequest(request, path) {
   const admin = await requireAdmin(request);
   if (!admin) return json({ error: 'Unauthorized' }, 401);
   if (path === 'auth/me' && method === 'GET') return json({ username: admin.username });
-  if (path === 'menders' && method === 'GET') return json((await pool.query('SELECT * FROM vendors ORDER BY CASE WHEN status=\'draft\' THEN 0 ELSE 1 END, id')).rows.map(adminVendor));
+  if (path === 'menders' && method === 'GET') {
+    const params = new URL(request.url).searchParams;
+    const requestedPage = Number(params.get('page') || 1);
+    const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+    const search = (params.get('q') || '').trim();
+    const status = params.get('status') || 'all';
+    if (!['all', 'active', 'draft', 'none'].includes(status)) return json({ error: 'Invalid status filter' }, 400);
+    const searchPattern = `%${search.replace(/[\\%_]/g, '\\$&')}%`;
+    const filter = `is_deleted = false
+      AND ($1 = '' OR name ILIKE $2 ESCAPE '\\' OR address ILIKE $2 ESCAPE '\\' OR category ILIKE $2 ESCAPE '\\')
+      AND ($3 = 'all' OR ($3 <> 'none' AND status = $3))`;
+    const values = [search, searchPattern, status];
+    const [filtered, summary] = await Promise.all([
+      pool.query(`SELECT count(*)::int AS total FROM vendors WHERE ${filter}`, values),
+      pool.query(`SELECT count(*)::int AS total,
+        count(*) FILTER (WHERE status = 'active')::int AS active,
+        count(*) FILTER (WHERE status = 'draft')::int AS draft
+        FROM vendors WHERE is_deleted = false`),
+    ]);
+    const total = filtered.rows[0].total;
+    const effectivePage = Math.min(page, Math.max(1, Math.ceil(total / PAGE_SIZE)));
+    const result = await pool.query(
+      `SELECT * FROM vendors WHERE ${filter}
+       ORDER BY CASE WHEN status = 'draft' THEN 0 ELSE 1 END, id
+       LIMIT $4 OFFSET $5`,
+      [...values, PAGE_SIZE, (effectivePage - 1) * PAGE_SIZE],
+    );
+    return json({ items: result.rows.map(adminVendor), total, page: effectivePage, pageSize: PAGE_SIZE, summary: summary.rows[0] });
+  }
   const match = path.match(/^menders\/(\d+)(\/activate)?$/);
   if (match && method === 'GET') {
-    const result = await pool.query('SELECT * FROM vendors WHERE id=$1', [Number(match[1])]);
+    const result = await pool.query('SELECT * FROM vendors WHERE id=$1 AND is_deleted = false', [Number(match[1])]);
     return result.rows[0] ? json(adminVendor(result.rows[0])) : json({ error: 'Mender not found' }, 404);
   }
   if (match && method === 'PATCH' && !match[2]) {
     try { return json(adminVendor(await updateVendor(pool, match[1], await parseBody(request)))); }
-    catch (error) { return json({ error: error.message }, error instanceof ValidationError && error.message === 'Vendor not found' ? 404 : 400); }
+    catch (error) { return json({ error: error.message }, error instanceof ValidationError && error.message === 'Mender not found' ? 404 : 400); }
   }
   if (match && method === 'POST' && match[2]) {
     try { return json(adminVendor(await activateVendor(pool, match[1]))); }
     catch (error) { return json({ error: error.message }, 404); }
+  }
+  if (match && method === 'DELETE' && !match[2]) {
+    const result = await pool.query('UPDATE vendors SET is_deleted = true WHERE id=$1 AND is_deleted = false RETURNING id', [Number(match[1])]);
+    return result.rows[0] ? json({ ok: true }) : json({ error: 'Mender not found' }, 404);
   }
   return json({ error: 'Not found' }, 404);
 }

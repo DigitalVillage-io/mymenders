@@ -6,8 +6,10 @@ import {
   Cog,
   Globe,
   Globe2,
-  House,
   Info,
+  Instagram,
+  Linkedin,
+  Mail,
   MapPin,
   MessageSquareQuote,
   Minus,
@@ -18,15 +20,21 @@ import {
   Route,
   Search,
   SlidersHorizontal,
+  SquareArrowOutUpRight,
   Star,
+  Store,
+  Twitter,
   X,
+  X as XBrand,
 } from 'lucide-react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Vendor } from '../types';
-import { reverseGeocode } from '../utils/geoapify';
 import {
   getTaxonomyLabel,
   getTaxonomyOptions,
+  getStudioTypeColor,
+  STUDIO_TYPE_COLORS,
+  STUDIO_TYPE_FALLBACK_COLOR,
   normalizeTaxonomyValues,
 } from '../../shared/vendorTaxonomy.js';
 
@@ -35,17 +43,13 @@ const GLOBAL_ZOOM = 2.5;
 const LOCAL_ZOOM = 15;
 const CITY_ZOOM = 12.5;
 const AUTO_CENTER_TO_FIRST_VENDOR = true;
-const DEFAULT_ENTRY_LEVEL = 'Verified Mender';
 const VENDOR_SOURCE_ID = 'vendors';
 const CLUSTER_CIRCLE_LAYER_ID = 'vendor-clusters';
 const CLUSTER_COUNT_LAYER_ID = 'vendor-cluster-count';
 const UNCLUSTERED_LAYER_ID = 'vendor-points';
-const ADDRESS_PLACEHOLDER = 'address not available';
-const MAP_SELECTED_ADDRESS_PLACEHOLDER = 'location selected on map';
-const ADDRESS_PLACEHOLDERS = new Set([
-  ADDRESS_PLACEHOLDER,
-  MAP_SELECTED_ADDRESS_PLACEHOLDER,
-]);
+const VENDOR_ZONE_SOURCE_ID = 'vendor-zones';
+const VENDOR_ZONE_FILL_LAYER_ID = 'vendor-zone-fill';
+const VENDOR_ZONE_LINE_LAYER_ID = 'vendor-zone-line';
 const MAP_CARD_WIDTH_PX = 360;
 const BASEMAP_STYLES = [
   { id: 'positron', label: 'Positron', styleUrl: 'https://tiles.openfreemap.org/styles/positron' },
@@ -55,12 +59,14 @@ const BASEMAP_STYLES = [
   { id: 'fiord', label: 'Fiord', styleUrl: 'https://tiles.openfreemap.org/styles/fiord' },
 ] as const;
 const DEFAULT_BASEMAP_STYLE_ID = 'bright';
-const PIN_COLOR_MAP: Record<string, string> = {
-  'Verified Mender': '#E8503F',
-  'Community Contribution': '#FFC93C',
-  default: '#4A9FE0',
-};
 const pinImageId = (color: string) => `vendor-pin-${color.replace('#', '').toLowerCase()}`;
+const PIN_COLORS = [...Object.values(STUDIO_TYPE_COLORS), STUDIO_TYPE_FALLBACK_COLOR];
+const PIN_IMAGE_EXPRESSION: any = [
+  'match',
+  ['get', 'pinColor'],
+  ...PIN_COLORS.slice(0, -1).flatMap((color) => [color, pinImageId(color)]),
+  pinImageId(STUDIO_TYPE_FALLBACK_COLOR),
+];
 const VENDOR_PIN_CANVAS_HEIGHT = 64;
 const VENDOR_PIN_TIP_Y = 28 + 14 * Math.SQRT2;
 const VENDOR_PIN_TIP_OFFSET = VENDOR_PIN_CANVAS_HEIGHT - VENDOR_PIN_TIP_Y;
@@ -107,15 +113,10 @@ const parseListFromSource = (value: unknown): string[] => {
 };
 
 const normalizeEntryLevel = (entryLevel?: string) => {
-  if (!entryLevel) return DEFAULT_ENTRY_LEVEL;
+  if (!entryLevel) return undefined;
   if (entryLevel === 'Menders') return 'Verified Mender';
   if (entryLevel === 'Member of the public') return 'Community Contribution';
   return entryLevel;
-};
-
-const getPinColor = (entryLevel?: string) => {
-  if (!entryLevel) return PIN_COLOR_MAP.default;
-  return PIN_COLOR_MAP[entryLevel] || PIN_COLOR_MAP.default;
 };
 
 const renderIconMarkup = (icon: React.ReactElement) => renderToStaticMarkup(icon);
@@ -125,9 +126,11 @@ const DIRECTIONS_BUTTON_ICON = renderIconMarkup(<Route className="w-4 h-4" aria-
 const ADDRESS_ICON = renderIconMarkup(<MapPin className="w-4 h-4" aria-hidden="true" />);
 const PHONE_ICON = renderIconMarkup(<Phone className="w-4 h-4" aria-hidden="true" />);
 const ONLINE_ICON = renderIconMarkup(<Globe2 className="w-4 h-4" aria-hidden="true" />);
+const EMAIL_ICON = renderIconMarkup(<Mail className="w-4 h-4" aria-hidden="true" />);
+const SOCIAL_ICON = renderIconMarkup(<SquareArrowOutUpRight className="w-4 h-4" aria-hidden="true" />);
 const REVIEW_ICON = renderIconMarkup(<MessageSquareQuote className="w-4 h-4" aria-hidden="true" />);
 const RATING_ICON = renderIconMarkup(<Star className="w-4 h-4 fill-current" aria-hidden="true" />);
-const HOUSE_ICON = renderIconMarkup(<House className="w-4 h-4" aria-hidden="true" />);
+const STORE_ICON = renderIconMarkup(<Store className="w-4 h-4" aria-hidden="true" />);
 
 const toDisplayName = (name?: string) => (name || '').trim();
 const EARTH_RADIUS_KM = 6371;
@@ -165,9 +168,6 @@ const formatDistance = (distanceKm?: number) => {
   return `${Math.round(distanceKm)} km`;
 };
 
-const shouldResolveVendorAddress = (address?: string) =>
-  ADDRESS_PLACEHOLDERS.has((address || '').trim().toLowerCase());
-
 const buildGoogleMapsDirectionsUrl = (vendor: Vendor) => {
   const latitude = parseCoordinate(vendor.latitude);
   const longitude = parseCoordinate(vendor.longitude);
@@ -183,6 +183,32 @@ const toExternalWebsiteUrl = (value?: string) => {
   const trimmed = (value || '').trim();
   if (!trimmed) return null;
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+};
+
+const getSocialIconMarkup = (value?: string) => {
+  const normalized = (value || '').trim().toLowerCase();
+  let host = normalized;
+
+  try {
+    host = new URL(/^https?:\/\//i.test(normalized) ? normalized : `https://${normalized}`).hostname
+      .replace(/^www\./, '');
+  } catch {
+    // Keep the raw value for a conservative substring fallback.
+  }
+
+  if (host === 'instagram.com' || host.endsWith('.instagram.com')) {
+    return renderIconMarkup(<Instagram className="w-4 h-4" aria-hidden="true" />);
+  }
+  if (host === 'twitter.com' || host.endsWith('.twitter.com')) {
+    return renderIconMarkup(<Twitter className="w-4 h-4" aria-hidden="true" />);
+  }
+  if (host === 'x.com' || host.endsWith('.x.com')) {
+    return renderIconMarkup(<XBrand className="w-4 h-4" aria-hidden="true" />);
+  }
+  if (host === 'linkedin.com' || host.endsWith('.linkedin.com')) {
+    return renderIconMarkup(<Linkedin className="w-4 h-4" aria-hidden="true" />);
+  }
+  return SOCIAL_ICON;
 };
 
 const emptyVendorFeatureCollection: GeoJSON.FeatureCollection<GeoJSON.Point> = {
@@ -206,51 +232,37 @@ const buildVendorFeatureCollection = (vendors: Vendor[]): GeoJSON.FeatureCollect
         },
         properties: {
           vendorId: vendor.id,
-          pinColor: getPinColor(normalizeEntryLevel(vendor.entry_level || vendor.category)),
+          pinColor: getStudioTypeColor(vendor.types),
         },
       },
     ];
   }),
 });
 
-const hydrateVendorAddress = async (vendor: Vendor): Promise<Vendor> => {
-  if (!shouldResolveVendorAddress(vendor.address)) {
-    return vendor;
-  }
+const buildVendorZoneFeatureCollection = (vendors: Vendor[]): GeoJSON.FeatureCollection<GeoJSON.Polygon> => ({
+  type: 'FeatureCollection',
+  features: vendors.flatMap((vendor) => {
+    if (vendor.location_visibility !== 'approx') return [];
+    const latitude = parseCoordinate(vendor.latitude);
+    const longitude = parseCoordinate(vendor.longitude);
+    const radiusKm = parseCoordinate(vendor.location_radius_km) ?? 0.2;
+    if (latitude === undefined || longitude === undefined) return [];
 
-  const latitude = parseCoordinate(vendor.latitude);
-  const longitude = parseCoordinate(vendor.longitude);
-  if (latitude === undefined || longitude === undefined) {
-    return vendor;
-  }
+    const coordinates = Array.from({ length: 65 }, (_, index) => {
+      const bearing = (index / 64) * 2 * Math.PI;
+      const latitudeOffset = (radiusKm * Math.cos(bearing)) / EARTH_RADIUS_KM * (180 / Math.PI);
+      const longitudeOffset = (radiusKm * Math.sin(bearing))
+        / (EARTH_RADIUS_KM * Math.max(0.15, Math.cos(latitude * (Math.PI / 180)))) * (180 / Math.PI);
+      return [longitude + longitudeOffset, latitude + latitudeOffset] as [number, number];
+    });
 
-  const resolvedAddress = await reverseGeocode(latitude, longitude);
-  if (!resolvedAddress) {
-    return vendor;
-  }
-
-  return {
-    ...vendor,
-    address: resolvedAddress,
-  };
-};
-
-const persistVendorAddress = async (vendor: Vendor) => {
-  if (!vendor.id || !vendor.address) return;
-
-  const res = await fetch(`${window.location.origin}/api/vendors`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      id: vendor.id,
-      address: vendor.address,
-    }),
-  });
-
-  if (!res.ok) {
-    throw new Error(`Failed to persist vendor address: ${res.status}`);
-  }
-};
+    return [{
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [coordinates] },
+      properties: { vendorId: vendor.id },
+    }];
+  }),
+});
 
 type FilterGroupKey = 'types' | 'categories' | 'regional_techniques';
 type TaxonomyOption = { id: string; label: string };
@@ -278,12 +290,16 @@ const normalizeVendor = (raw: any): Vendor => {
     ...raw,
     latitude: parseCoordinate(raw.latitude) ?? Number.NaN,
     longitude: parseCoordinate(raw.longitude) ?? Number.NaN,
+    location_visibility: raw.location_visibility === 'approx' ? 'approx' : 'exact',
+    location_radius_km: parseCoordinate(raw.location_radius_km) ?? undefined,
     rating: typeof raw.rating === 'number' ? raw.rating : Number(raw.rating) || 0,
     rating_count: Number(raw.rating_count) || Number((metadata as any)?.rating_count) || 0,
     types: normalizeVendorTaxonomyValues('types', raw.types || (metadata as any)?.types || (raw as any).type || (metadata as any)?.type),
     categories: normalizeVendorTaxonomyValues('categories', raw.categories || (metadata as any)?.categories),
     regional_techniques: normalizeVendorTaxonomyValues('regional_techniques', raw.regional_techniques || (metadata as any)?.regional_techniques),
-    online_presence: raw.online_presence || raw.website || (metadata as any)?.online_presence || (metadata as any)?.website,
+    website: raw.website || raw.online_presence || (metadata as any)?.online_presence || (metadata as any)?.website,
+    social: raw.social || (metadata as any)?.social,
+    email: raw.email || (metadata as any)?.email,
     review_text: raw.review_text || (metadata as any)?.review_text,
     entry_level: normalizeEntryLevel(raw.entry_level || (metadata as any)?.entry_level),
   };
@@ -323,7 +339,7 @@ const buildTagRow = (
   container.append(wrapper);
 };
 
-const appendTextRow = (container: HTMLDivElement, iconMarkup: string, value: string) => {
+const appendTextRow = (container: HTMLDivElement, iconMarkup: string, value: string, label?: string) => {
   const row = document.createElement('div');
   row.className = 'mb-1.5 flex items-start gap-1.5 text-xs text-[var(--mm-text-soft)]';
 
@@ -333,7 +349,13 @@ const appendTextRow = (container: HTMLDivElement, iconMarkup: string, value: str
 
   const text = document.createElement('span');
   text.className = 'min-w-0 flex-1 break-words leading-[1.35]';
-  text.textContent = value;
+  if (label) {
+    const labelText = document.createElement('span');
+    labelText.className = 'mr-1 text-[10px] uppercase text-[var(--mm-muted)]';
+    labelText.textContent = `${label}:`;
+    text.append(labelText);
+  }
+  text.append(document.createTextNode(value));
 
   row.append(icon, text);
   container.append(row);
@@ -354,10 +376,11 @@ const buildPopoverContent = (vendor: Vendor, onDetails: (vendor: Vendor) => void
   const contactSection = document.createElement('div');
   contactSection.className = 'space-y-0.5';
   const primaryType = vendor.types?.[0]?.trim();
-  if (primaryType) appendTextRow(contactSection, HOUSE_ICON, getTaxonomyLabel('types', primaryType));
+  if (primaryType) appendTextRow(contactSection, STORE_ICON, getTaxonomyLabel('types', primaryType));
   if (vendor.phone) appendTextRow(contactSection, PHONE_ICON, vendor.phone);
-  if (vendor.address) appendTextRow(contactSection, ADDRESS_ICON, vendor.address);
-  if (vendor.online_presence) appendTextRow(contactSection, ONLINE_ICON, vendor.online_presence);
+  if (vendor.location_visibility !== 'approx' && vendor.address) {
+    appendTextRow(contactSection, ADDRESS_ICON, vendor.address);
+  }
   if (contactSection.children.length) {
     container.append(contactSection);
   }
@@ -398,26 +421,42 @@ const buildPopoverContent = (vendor: Vendor, onDetails: (vendor: Vendor) => void
   }
 
   const actionRow = document.createElement('div');
-  actionRow.className = 'mt-3 flex items-center gap-2';
+  actionRow.className = 'mt-3 flex flex-wrap items-center gap-1.5';
 
   const circleActiveClass =
-    'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-[0.5px] border-black bg-brand text-brand-dark-on transition-colors hover:bg-brand-hover';
+    'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-[0.5px] border-black bg-brand text-brand-dark-on transition-colors hover:bg-brand-hover';
   const circleDisabledClass =
-    'inline-flex h-9 w-9 shrink-0 cursor-not-allowed items-center justify-center rounded-full border border-[var(--mm-border-strong)] bg-[var(--mm-panel-muted)] text-[var(--mm-muted)]';
+    'inline-flex h-8 w-8 shrink-0 cursor-not-allowed items-center justify-center rounded-full border border-[var(--mm-border-strong)] bg-[var(--mm-panel-muted)] text-[var(--mm-muted)]';
 
-  const directionsLink = document.createElement('a');
-  directionsLink.href = buildGoogleMapsDirectionsUrl(vendor);
-  directionsLink.target = '_blank';
-  directionsLink.rel = 'noopener noreferrer';
-  directionsLink.className =
-    'inline-flex h-9 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-brand-dark px-3 text-xs text-brand-dark-on transition-colors hover:bg-brand-dark-hover';
-  directionsLink.innerHTML = `
-    <span class="inline-flex items-center justify-center w-4 h-4">
-      ${DIRECTIONS_BUTTON_ICON}
-    </span>
-    Directions
-  `;
-  actionRow.append(directionsLink);
+  if (vendor.location_visibility === 'approx') {
+    const directionsButton = document.createElement('button');
+    directionsButton.type = 'button';
+    directionsButton.disabled = true;
+    directionsButton.className =
+      'inline-flex h-8 min-w-[108px] flex-1 cursor-not-allowed items-center justify-center gap-1.5 rounded-full bg-[var(--mm-panel-muted)] px-2.5 text-[11px] text-[var(--mm-muted)]';
+    directionsButton.title = 'Directions unavailable for approximate locations';
+    directionsButton.innerHTML = `
+      <span class="inline-flex items-center justify-center w-4 h-4">
+        ${DIRECTIONS_BUTTON_ICON}
+      </span>
+      Directions
+    `;
+    actionRow.append(directionsButton);
+  } else {
+    const directionsLink = document.createElement('a');
+    directionsLink.href = buildGoogleMapsDirectionsUrl(vendor);
+    directionsLink.target = '_blank';
+    directionsLink.rel = 'noopener noreferrer';
+    directionsLink.className =
+      'inline-flex h-8 min-w-[108px] flex-1 items-center justify-center gap-1.5 rounded-full bg-brand-dark px-2.5 text-[11px] text-brand-dark-on transition-colors hover:bg-brand-dark-hover';
+    directionsLink.innerHTML = `
+      <span class="inline-flex items-center justify-center w-4 h-4">
+        ${DIRECTIONS_BUTTON_ICON}
+      </span>
+      Directions
+    `;
+    actionRow.append(directionsLink);
+  }
 
   const detailsButton = document.createElement('button');
   detailsButton.type = 'button';
@@ -462,35 +501,49 @@ const buildPopoverContent = (vendor: Vendor, onDetails: (vendor: Vendor) => void
     actionRow.append(phoneButton);
   }
 
-  const websiteUrl = toExternalWebsiteUrl(vendor.online_presence);
-  if (websiteUrl) {
-    const websiteLink = document.createElement('a');
-    websiteLink.className = circleActiveClass;
-    websiteLink.href = websiteUrl;
-    websiteLink.target = '_blank';
-    websiteLink.rel = 'noopener noreferrer';
-    websiteLink.title = websiteUrl;
-    websiteLink.setAttribute('aria-label', 'Visit website or social profile');
-    websiteLink.innerHTML = `
-      <span class="inline-flex items-center justify-center w-4 h-4">
-        ${ONLINE_ICON}
-      </span>
-    `;
-    actionRow.append(websiteLink);
-  } else {
-    const websiteButton = document.createElement('button');
-    websiteButton.type = 'button';
-    websiteButton.disabled = true;
-    websiteButton.className = circleDisabledClass;
-    websiteButton.title = 'No website available';
-    websiteButton.setAttribute('aria-label', 'No website available');
-    websiteButton.innerHTML = `
-      <span class="inline-flex items-center justify-center w-4 h-4">
-        ${ONLINE_ICON}
-      </span>
-    `;
-    actionRow.append(websiteButton);
-  }
+  const appendContactAction = ({
+    value,
+    label,
+    iconMarkup,
+    href,
+    external = false,
+  }: {
+    value?: string;
+    label: string;
+    iconMarkup: string;
+    href: (value: string) => string | null;
+    external?: boolean;
+  }) => {
+    const trimmedValue = (value || '').trim();
+    const targetUrl = trimmedValue ? href(trimmedValue) : null;
+    if (targetUrl) {
+      const link = document.createElement('a');
+      link.className = circleActiveClass;
+      link.href = targetUrl;
+      if (external) {
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+      }
+      link.title = label;
+      link.setAttribute('aria-label', label);
+      link.innerHTML = `<span class="inline-flex items-center justify-center w-4 h-4">${iconMarkup}</span>`;
+      actionRow.append(link);
+      return;
+    }
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.disabled = true;
+    button.className = circleDisabledClass;
+    button.title = `No ${label.toLowerCase()} available`;
+    button.setAttribute('aria-label', `No ${label.toLowerCase()} available`);
+    button.innerHTML = `<span class="inline-flex items-center justify-center w-4 h-4">${iconMarkup}</span>`;
+    actionRow.append(button);
+  };
+
+  appendContactAction({ value: vendor.email, label: 'Email', iconMarkup: EMAIL_ICON, href: (value) => `mailto:${value}` });
+  appendContactAction({ value: vendor.website, label: 'Visit website', iconMarkup: ONLINE_ICON, href: toExternalWebsiteUrl, external: true });
+  appendContactAction({ value: vendor.social, label: 'Visit social profile', iconMarkup: getSocialIconMarkup(vendor.social), href: toExternalWebsiteUrl, external: true });
 
   container.append(actionRow);
 
@@ -553,7 +606,7 @@ const rasterizeVendorPinSvg = async (svgMarkup: string) => {
 };
 
 const ensureVendorPinImages = async (map: maplibregl.Map) => {
-  for (const color of Object.values(PIN_COLOR_MAP)) {
+  for (const color of PIN_COLORS) {
     const id = pinImageId(color);
     if (map.hasImage(id)) continue;
     const imageData = await rasterizeVendorPinSvg(buildVendorPinSvg(color));
@@ -573,6 +626,39 @@ const ensureVendorLayers = async (map: maplibregl.Map) => {
       cluster: true,
       clusterMaxZoom: 14,
       clusterRadius: 56,
+    });
+  }
+
+  if (!map.getSource(VENDOR_ZONE_SOURCE_ID)) {
+    map.addSource(VENDOR_ZONE_SOURCE_ID, {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+  }
+
+  if (!map.getLayer(VENDOR_ZONE_FILL_LAYER_ID)) {
+    map.addLayer({
+      id: VENDOR_ZONE_FILL_LAYER_ID,
+      type: 'fill',
+      source: VENDOR_ZONE_SOURCE_ID,
+      paint: {
+        'fill-color': '#d9dfdb',
+        'fill-opacity': 0.22,
+      },
+    });
+  }
+
+  if (!map.getLayer(VENDOR_ZONE_LINE_LAYER_ID)) {
+    map.addLayer({
+      id: VENDOR_ZONE_LINE_LAYER_ID,
+      type: 'line',
+      source: VENDOR_ZONE_SOURCE_ID,
+      paint: {
+        'line-color': '#6f877d',
+        'line-width': 1.25,
+        'line-opacity': 0.6,
+        'line-dasharray': [2, 2],
+      },
     });
   }
 
@@ -632,15 +718,7 @@ const ensureVendorLayers = async (map: maplibregl.Map) => {
       source: VENDOR_SOURCE_ID,
       filter: ['!', ['has', 'point_count']],
       layout: {
-        'icon-image': [
-          'match',
-          ['get', 'pinColor'],
-          PIN_COLOR_MAP['Verified Mender'],
-          pinImageId(PIN_COLOR_MAP['Verified Mender']),
-          PIN_COLOR_MAP['Community Contribution'],
-          pinImageId(PIN_COLOR_MAP['Community Contribution']),
-          pinImageId(PIN_COLOR_MAP.default),
-        ],
+        'icon-image': PIN_IMAGE_EXPRESSION,
         'icon-size': 1,
         'icon-anchor': 'bottom',
         // The bitmap keeps room for the CSS-equivalent shadow below the tip.
@@ -723,6 +801,8 @@ const VendorListSkeleton = () => (
 export function MapPage() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [centerMapTo, setCenterMapTo] = useState<{ lat: number; lng: number; zoom?: number } | null>(null);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [findingLocation, setFindingLocation] = useState(false);
@@ -750,14 +830,18 @@ export function MapPage() {
     let cancelled = false;
 
     const loadVendors = async () => {
+      setLoadError(null);
       try {
         const res = await fetch(`${window.location.origin}/api/vendors`);
+        if (!res.ok) throw new Error(`Vendor request failed with status ${res.status}`);
         const data = await res.json();
-        if (!Array.isArray(data) || cancelled) return;
+        if (!Array.isArray(data)) throw new Error('Vendor response was not a list');
+        if (cancelled) return;
 
         setVendors(data.map(normalizeVendor));
       } catch (err) {
         console.error('Failed to fetch vendors:', err);
+        if (!cancelled) setLoadError('We couldn’t load menders right now.');
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -768,13 +852,13 @@ export function MapPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
 
   useEffect(() => {
     vendorsRef.current = vendors;
   }, [vendors]);
 
-  const openVendorPopup = async (vendor: Vendor, options: { focus?: boolean; zoom?: number } = {}) => {
+  const openVendorPopup = (vendor: Vendor, options: { focus?: boolean; zoom?: number } = {}) => {
     const map = mapInstanceRef.current;
     if (!map) return;
 
@@ -791,19 +875,11 @@ export function MapPage() {
 
     setSelectedVendorId(vendor.id);
 
-    const resolvedVendor = await hydrateVendorAddress(vendor);
-    if (resolvedVendor.address !== vendor.address) {
-      setVendors((prev) => prev.map((item) => (item.id === resolvedVendor.id ? resolvedVendor : item)));
-      persistVendorAddress(resolvedVendor).catch((error) => {
-        console.error('Failed to persist resolved vendor address:', error);
-      });
-    }
-
     popupRef.current?.remove();
     popupRef.current = new maplibregl.Popup({ closeButton: true, maxWidth: `${MAP_CARD_WIDTH_PX}px` })
       .setLngLat(coordinates)
       .setDOMContent(
-        buildPopoverContent(resolvedVendor, (selectedVendor) => {
+        buildPopoverContent(vendor, (selectedVendor) => {
           const targetCoordinates = getVendorCoordinates(selectedVendor);
           if (!targetCoordinates) return;
           map.flyTo({
@@ -888,6 +964,7 @@ export function MapPage() {
     0,
   );
   const hasActiveFilters = activeFilterCount > 0;
+  const hasSearchOrFilters = Boolean(searchQuery.trim()) || hasActiveFilters;
 
   const clearAllFilters = () => {
     setSelectedFilters(createEmptyFilterState());
@@ -975,6 +1052,7 @@ export function MapPage() {
       applyEnglishLabelOverrides(map);
       try {
         await ensureVendorLayers(map);
+        setMapBounds(map.getBounds());
         setIsMapReady(true);
       } catch (error) {
         console.error('Unable to load the vendor map pin:', error);
@@ -1008,7 +1086,7 @@ export function MapPage() {
       }
 
       const vendorFeatures = map.queryRenderedFeatures(event.point, {
-        layers: [UNCLUSTERED_LAYER_ID],
+        layers: [UNCLUSTERED_LAYER_ID, VENDOR_ZONE_FILL_LAYER_ID],
       });
       const vendorFeature = vendorFeatures[0];
 
@@ -1024,7 +1102,7 @@ export function MapPage() {
       if (!map.getLayer(CLUSTER_CIRCLE_LAYER_ID) || !map.getLayer(UNCLUSTERED_LAYER_ID)) return;
 
       const interactiveFeatures = map.queryRenderedFeatures(event.point, {
-        layers: [CLUSTER_CIRCLE_LAYER_ID, CLUSTER_COUNT_LAYER_ID, UNCLUSTERED_LAYER_ID],
+        layers: [CLUSTER_CIRCLE_LAYER_ID, CLUSTER_COUNT_LAYER_ID, UNCLUSTERED_LAYER_ID, VENDOR_ZONE_FILL_LAYER_ID],
       });
       map.getCanvas().style.cursor = interactiveFeatures.length ? 'pointer' : '';
     };
@@ -1066,8 +1144,10 @@ export function MapPage() {
     if (!map) return;
 
     const source = map.getSource(VENDOR_SOURCE_ID) as GeoJSONSource | undefined;
-    if (!source) return;
+    const zoneSource = map.getSource(VENDOR_ZONE_SOURCE_ID) as GeoJSONSource | undefined;
+    if (!source || !zoneSource) return;
     source.setData(buildVendorFeatureCollection(visibleMapVendors));
+    zoneSource.setData(buildVendorZoneFeatureCollection(visibleMapVendors));
   }, [isMapReady, visibleMapVendors]);
 
   useEffect(() => {
@@ -1172,23 +1252,25 @@ export function MapPage() {
           <div className="shrink-0 border-b border-[#e5e7eb] px-3 py-3">
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
+                <label htmlFor="menders-search-desktop" className="sr-only">Search menders</label>
                 <Search
                   className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a877d]"
                   aria-hidden="true"
                 />
                 <input
+                  id="menders-search-desktop"
                   type="search"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="Search menders..."
+                  placeholder="Search menders…"
                   aria-label="Search menders"
-                  className="w-full rounded-full border border-[#e5e7eb] bg-white py-2 pl-9 pr-8 text-sm text-[#171b17] placeholder:text-[#8a877d] focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
+                  className="w-full rounded-full border border-[#e5e7eb] bg-white py-2 pl-9 pr-8 text-sm text-[#171b17] placeholder:text-[#8a877d] focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
                 />
                 {searchQuery ? (
                   <button
                     type="button"
                     onClick={() => setSearchQuery('')}
-                    className="absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full text-[var(--mm-faint)] transition-colors hover:bg-[var(--mm-panel-muted)] hover:text-[var(--mm-text)]"
+                    className="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-[var(--mm-faint)] transition-[background-color,color] hover:bg-[var(--mm-panel-muted)] hover:text-[var(--mm-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                     aria-label="Clear search"
                   >
                     <X className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1200,7 +1282,7 @@ export function MapPage() {
                 ref={filterButtonRef}
                 type="button"
                 onClick={() => setIsFilterDrawerOpen((value) => !value)}
-                className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${
+                className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${
                   isFilterDrawerOpen || hasActiveFilters
                     ? 'border-brand-dark bg-brand-dark text-brand-dark-on'
                     : 'border-dashed border-[var(--mm-border-strong)] bg-[var(--mm-panel)] text-[var(--mm-text-soft)] hover:border-[var(--mm-muted)] hover:bg-[var(--mm-panel-muted)]'
@@ -1235,6 +1317,25 @@ export function MapPage() {
                 ))}
               </div>
             ) : null}
+
+            {(isLoading || hasSearchOrFilters) && (
+              <div className="mt-3 flex items-center justify-end gap-3">
+                {isLoading && (
+                  <p className="mr-auto text-xs text-[var(--mm-muted)]" role="status" aria-live="polite">
+                    Loading menders…
+                  </p>
+                )}
+                {hasSearchOrFilters && (
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="shrink-0 text-xs text-[var(--mm-muted)] underline decoration-[var(--mm-border-strong)] underline-offset-2 transition-[color] hover:text-[var(--mm-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                  >
+                    Clear search and filters
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           <div
@@ -1245,6 +1346,21 @@ export function MapPage() {
           >
             {isLoading ? (
               <VendorListSkeleton />
+            ) : loadError ? (
+              <div className="mymenders-map-empty-state m-3">
+                <p className="font-medium text-[var(--mm-text)]">Menders are temporarily unavailable</p>
+                <p className="mt-1 text-xs leading-5 text-[var(--mm-muted)]">Check your connection and try again.</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsLoading(true);
+                    setReloadKey((key) => key + 1);
+                  }}
+                  className="mymenders-map-empty-state__action mt-3"
+                >
+                  Try again
+                </button>
+              </div>
             ) : displayedVendorsWithDistance.length ? (
               displayedVendorsWithDistance.map(({ vendor, distanceKm }) => {
                 const coordinates = getVendorCoordinates(vendor);
@@ -1263,7 +1379,7 @@ export function MapPage() {
                       openVendorPopup(vendor, { focus: true, zoom: DIRECTION_ZOOM });
                     }}
                     disabled={!isClickable}
-                    className={`group relative w-full border-b border-[var(--mm-border)] last:border-b-0 py-3 pl-3 pr-3 text-left transition ${
+                    className={`group relative w-full border-b border-[var(--mm-border)] last:border-b-0 py-3 pl-3 pr-3 text-left transition-[background-color,opacity] ${
                       isActive
                         ? 'bg-[var(--mm-border)]'
                         : isClickable
@@ -1285,10 +1401,17 @@ export function MapPage() {
                           </span>
                         ) : null}
                       </div>
-                      <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--mm-muted)]">
-                        <MapPin className="w-3 h-3 shrink-0" />
-                        <span className="truncate">{vendor.address || 'Address unavailable'}</span>
-                      </p>
+                      {vendor.location_visibility === 'approx' ? (
+                        <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--mm-muted)]">
+                          <MapPin className="w-3 h-3 shrink-0" />
+                          <span className="truncate">Contact the mender for the exact location</span>
+                        </p>
+                      ) : vendor.address ? (
+                        <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--mm-muted)]">
+                          <MapPin className="w-3 h-3 shrink-0" />
+                          <span className="truncate">{vendor.address}</span>
+                        </p>
+                      ) : null}
                       {!!categories.length ? (
                         <div className="mt-1.5 flex flex-wrap gap-1">
                           {categories.map((category) => (
@@ -1318,8 +1441,28 @@ export function MapPage() {
                 );
               })
             ) : (
-              <div className="rounded-xl border border-[var(--mm-border)] bg-[var(--mm-panel)] py-4 pl-3 pr-12 text-sm text-[var(--mm-muted)]">
-                No menders match your search or filters.
+              <div className="mymenders-map-empty-state m-3">
+                <p className="font-medium text-[var(--mm-text)]">
+                  {hasSearchOrFilters ? 'No menders match this search' : 'No menders have been added yet'}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-[var(--mm-muted)]">
+                  {hasSearchOrFilters
+                    ? 'Try a different search or clear the current filters.'
+                    : 'Menders added to the directory will appear here.'}
+                </p>
+                {hasSearchOrFilters ? (
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="mymenders-map-empty-state__action mt-3"
+                  >
+                    Clear search and filters
+                  </button>
+                ) : (
+                  <a href="/add" className="mymenders-map-empty-state__action mt-3">
+                    Add a mender
+                  </a>
+                )}
               </div>
             )}
           </div>
@@ -1329,25 +1472,27 @@ export function MapPage() {
           <div ref={mapContainerRef} className="w-full h-full" />
 
           {/* Mobile search + filters (below md) */}
-          <div className="absolute left-4 right-4 top-20 z-10 flex items-center gap-2 md:hidden">
-            <div className="relative flex-1">
+          <div className="absolute left-4 right-4 top-4 z-10 flex items-center gap-2 md:hidden">
+            <div className="relative min-w-0 flex-1">
+              <label htmlFor="menders-search-mobile" className="sr-only">Search menders</label>
               <Search
                 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a877d]"
                 aria-hidden="true"
               />
               <input
+                id="menders-search-mobile"
                 type="search"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search menders..."
+                placeholder="Search menders…"
                 aria-label="Search menders"
-                className="w-full rounded-full border border-[#e5e7eb] bg-white/95 py-2.5 pl-9 pr-4 text-sm text-[#171b17] shadow-[0_2px_12px_rgba(15,23,42,0.08)] backdrop-blur-sm placeholder:text-[#8a877d] focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
+                className="w-full rounded-full border border-[#e5e7eb] bg-white/95 py-2.5 pl-9 pr-4 text-sm text-[#171b17] shadow-[0_2px_12px_rgba(15,23,42,0.08)] backdrop-blur-sm placeholder:text-[#8a877d] focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
               />
             </div>
             <button
               type="button"
               onClick={() => setIsFilterDrawerOpen((value) => !value)}
-              className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-[0.5px] border-black bg-brand text-brand-dark-on shadow-[var(--mm-shadow-subtle)] transition-colors hover:bg-brand-hover"
+              className="mymenders-map-control relative h-11 w-11 shrink-0"
               aria-label="Filter menders"
               aria-expanded={isFilterDrawerOpen}
               aria-controls="vendor-filter-drawer"
@@ -1359,18 +1504,37 @@ export function MapPage() {
                 </span>
               ) : null}
             </button>
+            <button
+              type="button"
+              onClick={locateUser}
+              disabled={findingLocation}
+              className="mymenders-map-control h-11 shrink-0 px-3 text-xs sm:px-4"
+              title="Near me"
+              aria-label="Find nearby menders"
+            >
+              {findingLocation ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#8a877d]" /> : <Navigation className="h-4 w-4 shrink-0" />}
+              <span>Near me</span>
+            </button>
           </div>
+
+          {isLoading && (
+            <div className="mymenders-map-status absolute bottom-6 left-4 z-10 md:hidden" role="status" aria-live="polite">
+              Loading menders…
+            </div>
+          )}
 
           {isFilterDrawerOpen && (
             <div
               id="vendor-filter-drawer"
               ref={filterDrawerRef}
               className="fixed inset-x-0 bottom-0 z-20 flex max-h-[70vh] flex-col rounded-t-2xl border-t border-[#e5e7eb] bg-[#fafafa] shadow-[0_-8px_32px_rgba(15,23,42,0.12)] backdrop-blur-sm md:absolute md:bottom-0 md:left-0 md:top-0 md:max-h-none md:w-[min(340px,calc(100vw-25vw))] md:rounded-none md:border-r md:border-t-0 md:shadow-[18px_0_34px_rgba(15,23,42,0.12)]"
+              aria-labelledby="vendor-filter-drawer-title"
               onWheel={(event) => {
                 event.stopPropagation();
               }}
             >
-              <div className="flex shrink-0 items-center justify-end border-b border-[#e5e7eb] px-3 py-2">
+              <div className="flex shrink-0 items-center justify-between border-b border-[#e5e7eb] px-4 py-3">
+                <h2 id="vendor-filter-drawer-title" className="text-sm font-medium text-[var(--mm-text)]">Filter menders</h2>
                 <button
                   type="button"
                   onClick={() => setIsFilterDrawerOpen(false)}
@@ -1425,37 +1589,39 @@ export function MapPage() {
                 <button
                   type="button"
                   onClick={clearAllFilters}
-                  disabled={!hasActiveFilters}
+                  disabled={!hasSearchOrFilters}
                   className="mymenders-field flex h-10 w-full items-center justify-center border px-3 text-sm text-[#3d403b] transition-colors hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-45"
                 >
-                  Clear all
+                  Clear search and filters
                 </button>
               </div>
             </div>
           )}
 
-          <div className="absolute right-6 top-6 z-10 flex items-center gap-2">
+          <div className="absolute right-6 top-6 z-10 hidden items-center gap-2 md:flex">
             <button
+              type="button"
               onClick={locateUser}
               disabled={findingLocation}
-              className="flex h-11 w-[116px] items-center justify-center rounded-full border-[0.5px] border-black bg-brand px-4 text-brand-dark-on shadow-[var(--mm-shadow-subtle)] transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-70"
+              className="mymenders-map-control w-[116px] px-4"
               title="Near me"
               aria-label="Find nearby menders"
             >
               {findingLocation ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#8a877d]" /> : <Navigation className="h-4 w-4 shrink-0" />}
-              <span className="ml-2 text-xs ">Near me</span>
+              <span className="ml-2 text-xs">Near me</span>
             </button>
           </div>
 
-          <div className="absolute bottom-6 right-6 z-10 flex flex-col items-end gap-2">
-            <div className="flex w-11 flex-col overflow-hidden rounded-full border-[0.5px] border-black bg-brand text-brand-dark-on shadow-[var(--mm-shadow-subtle)]">
+          <div className="absolute right-4 top-[4.5rem] z-10 flex flex-col items-end gap-2 md:bottom-6 md:right-6 md:top-auto">
+            <div className="mymenders-map-control-group">
               <button
+                type="button"
                 onClick={() => {
                   const map = mapInstanceRef.current;
                   if (!map) return;
                   map.zoomIn();
                 }}
-                className="flex h-11 w-11 items-center justify-center transition-colors hover:bg-brand-hover"
+                className="mymenders-map-control h-11 w-11 rounded-none shadow-none"
                 aria-label="Zoom in"
               >
                 <Plus className="w-5 h-5" />
@@ -1464,12 +1630,13 @@ export function MapPage() {
               <div className="h-px bg-brand-dark-text/15" />
 
               <button
+                type="button"
                 onClick={() => {
                   const map = mapInstanceRef.current;
                   if (!map) return;
                   map.zoomOut();
                 }}
-                className="flex h-11 w-11 items-center justify-center transition-colors hover:bg-brand-hover"
+                className="mymenders-map-control h-11 w-11 rounded-none shadow-none"
                 aria-label="Zoom out"
               >
                 <Minus className="w-5 h-5" />
@@ -1477,6 +1644,7 @@ export function MapPage() {
             </div>
 
             <button
+              type="button"
               onClick={() => {
                 const map = mapInstanceRef.current;
                 if (!map) return;
@@ -1488,7 +1656,7 @@ export function MapPage() {
                   duration: 700,
                 });
               }}
-              className="flex h-11 w-11 items-center justify-center rounded-full border-[0.5px] border-black bg-brand text-brand-dark-on shadow-[var(--mm-shadow-subtle)] transition-colors hover:bg-brand-hover"
+              className="mymenders-map-control h-11 w-11"
               aria-label="Reset to globe view"
             >
               <Globe className="w-5 h-5" />
@@ -1496,8 +1664,9 @@ export function MapPage() {
 
             <div className="relative" ref={styleMenuRef}>
               <button
+                type="button"
                 onClick={() => setIsStyleMenuOpen((value) => !value)}
-                className="flex h-11 w-11 items-center justify-center rounded-full border-[0.5px] border-black bg-brand text-brand-dark-on shadow-[var(--mm-shadow-subtle)] transition-colors hover:bg-brand-hover"
+                className="mymenders-map-control h-11 w-11"
                 aria-label="Map style"
                 aria-expanded={isStyleMenuOpen}
               >
@@ -1505,9 +1674,10 @@ export function MapPage() {
               </button>
 
               {isStyleMenuOpen && (
-                <div className="mymenders-cloth-panel absolute bottom-full right-0 z-20 mb-2 w-48 overflow-hidden rounded-2xl border bg-cloth/95 p-1.5 backdrop-blur-sm">
+                <div className="mymenders-map-menu mymenders-cloth-panel absolute right-0 top-full z-20 mt-2 w-48 overflow-hidden rounded-2xl border bg-cloth/95 p-1.5 backdrop-blur-sm md:bottom-full md:top-auto md:mb-2 md:mt-0">
                   {BASEMAP_STYLES.map((style) => (
                     <button
+                      type="button"
                       key={style.id}
                       onClick={() => {
                         setSelectedBasemapStyleId(style.id);

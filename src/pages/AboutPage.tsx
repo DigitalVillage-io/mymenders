@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Footer } from '../components/layout/Footer';
 
 const initiatives = [
@@ -47,9 +48,36 @@ const howItWorks = [
 const logoClassName =
   'object-contain mix-blend-multiply grayscale opacity-60 transition-[filter,opacity] duration-300 hover:grayscale-0 hover:opacity-100';
 
-export function AboutPage() {
+export function AboutPage({ homepage = false }: { homepage?: boolean }) {
   const heroRef = useRef<HTMLElement>(null);
   const [heroTextOpacity, setHeroTextOpacity] = useState(1);
+  const { hash } = useLocation();
+  const heroImage = homepage
+    ? {
+        src: '/images/about/red-patched-top.webp',
+        alt: 'A red ribbed top repaired with colorful visible mending patches',
+        width: 1086,
+        height: 1448,
+      }
+    : {
+        src: '/images/about/visible-mending-sweater.jpg',
+        alt: 'A charcoal knitted sweater restored with visible woven patches',
+        width: 726,
+        height: 1024,
+      };
+
+  useEffect(() => {
+    if (hash !== '#about-mission') return;
+
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById('about-mission')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [hash]);
 
   useEffect(() => {
     const updateHeroTextOpacity = () => {
@@ -95,30 +123,31 @@ export function AboutPage() {
           <div className="flex min-h-[28rem] items-end px-[30px] pb-12 pt-20 sm:min-h-[34rem] sm:pb-16 lg:min-h-0 lg:pb-16 lg:pt-0">
             <h1
               id="about-hero-title"
-              className="font-display text-[42px] leading-[0.98] text-[var(--mm-text)] sm:text-[56px] lg:text-[clamp(48px,4.45vw,76px)]"
+              className="font-display text-[clamp(24px,7.6vw,42px)] leading-[0.98] text-[var(--mm-text)] sm:text-[56px] lg:text-[clamp(48px,4.45vw,76px)]"
               style={{ opacity: heroTextOpacity }}
             >
               <span className="block">The only antidote</span>
-              <span className="block">to a throwaway society</span>
+              <span className="block whitespace-nowrap">to a throwaway society</span>
               <span className="block">is to keep</span>
             </h1>
           </div>
 
           <figure className="w-full overflow-hidden">
             <img
-              src="/images/about/visible-mending-sweater.jpg"
-              alt="A charcoal knitted sweater restored with visible woven patches"
+              src={heroImage.src}
+              alt={heroImage.alt}
               className="block h-auto w-full lg:h-full lg:object-cover lg:object-center"
-              width="726"
-              height="1024"
+              width={heroImage.width}
+              height={heroImage.height}
               decoding="async"
             />
           </figure>
         </section>
 
         <section
+          id="about-mission"
           aria-labelledby="about-mission-title"
-          className="px-[30px] pb-12 pt-24 text-center sm:pb-16 sm:pt-32 lg:pb-20 lg:pt-40"
+          className="scroll-mt-20 px-[30px] pb-12 pt-24 text-center sm:pb-16 sm:pt-32 lg:pb-20 lg:pt-40"
         >
           <div className="mx-auto max-w-3xl">
             <h2

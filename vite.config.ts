@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { Pool } from 'pg';
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
-import { insertEmailSub, insertVendor, ValidationError } from './api/lib/db.js';
+import { insertEmailSub, insertVendor, publicVendor, ValidationError } from './api/lib/db.js';
 import { handleAdminRequest } from './api/lib/admin.js';
 
 export default defineConfig(({ mode }) => {
@@ -94,10 +94,10 @@ export default defineConfig(({ mode }) => {
 
             try {
               if (req.method === 'GET') {
-                const result = await pool.query("SELECT * FROM vendors WHERE status = 'active' ORDER BY id");
+                const result = await pool.query("SELECT * FROM vendors WHERE status = 'active' AND is_deleted = false ORDER BY id");
                 res.statusCode = 200;
                 res.setHeader('Content-Type', 'application/json');
-                res.end(JSON.stringify(result.rows));
+                res.end(JSON.stringify(result.rows.map(publicVendor)));
                 return;
               }
 
@@ -115,7 +115,7 @@ export default defineConfig(({ mode }) => {
 
                 res.statusCode = 201;
                 res.setHeader('Content-Type', 'application/json');
-                res.end(JSON.stringify(vendor));
+                res.end(JSON.stringify(publicVendor(vendor)));
                 return;
               }
 

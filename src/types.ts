@@ -5,6 +5,8 @@ export interface Vendor {
   address?: string;
   latitude: number;
   longitude: number;
+  location_visibility?: 'exact' | 'approx';
+  location_radius_km?: number;
   category?: string;
   entry_level?: 'Menders' | 'Member of the public' | string;
   types?: string[];
@@ -16,6 +18,8 @@ export interface Vendor {
   rating_count?: number;
   phone?: string;
   website?: string;
+  social?: string;
+  email?: string;
   hours?: string;
   photo_url?: string;
   photos?: string;

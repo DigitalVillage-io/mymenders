@@ -70,7 +70,7 @@ export function Footer() {
               <span />
             </div>
             <p className="mt-5 text-sm leading-relaxed text-[var(--mm-muted)]">
-              A map-based platform connecting people with menders, repair knowledge, and the cultures of care that keep clothes alive.
+              My mender is an initiative of Bhaavya Goenka and Orsola de Castro
             </p>
           </div>
 
@@ -112,6 +112,14 @@ export function Footer() {
                   className="text-[var(--mm-muted)] transition-colors hover:text-[var(--mm-text)]"
                 >
                   Instagram
+                </a>
+                <a
+                  href="https://www.linkedin.com/company/my-mender/home/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[var(--mm-muted)] transition-colors hover:text-[var(--mm-text)]"
+                >
+                  LinkedIn
                 </a>
               </nav>
             </div>

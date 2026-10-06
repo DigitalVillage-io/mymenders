@@ -1,15 +1,19 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check } from 'lucide-react';
+import { ArrowLeft, Check, MapPin, VectorSquare } from 'lucide-react';
 import Select, { type GroupBase, type MultiValue, type SingleValue } from 'react-select';
-import { PhoneInput } from 'react-international-phone';
+import { PhoneInput, type CountryIso2 } from 'react-international-phone';
 import { Rating as ReactRating, ThinRoundedStar } from '@smastrom/react-rating';
 import '@smastrom/react-rating/style.css';
 import { Vendor } from '../types';
 import { createLocationPinIcon, loadGoogleMapsScript } from '../utils/googleMaps';
-import { reverseGeocode as geoReverse } from '../utils/geoapify';
+import { reverseGeocode as geoReverse, reverseGeocodeDetails } from '../utils/geoapify';
 import { GeoAutocomplete } from '../components/GeoAutocomplete';
-import { getGroupedTaxonomyOptions, getTaxonomyOptions } from '../../shared/vendorTaxonomy.js';
+import {
+  getGroupedTaxonomyOptions,
+  getStudioTypeColor,
+  getTaxonomyOptions,
+} from '../../shared/vendorTaxonomy.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -21,15 +25,6 @@ type EntryLevelOption = (typeof ENTRY_LEVEL_OPTIONS)[number];
 const MENDER_ICON_URL =
   'https://img.icons8.com/external-kmg-design-outline-color-kmg-design/64/external-sewing-sewing-kmg-design-outline-color-kmg-design-3.png';
 const CONTRIBUTOR_ICON_URL = 'https://img.icons8.com/office/80/map-marker.png';
-
-// CSS custom properties for the pin colours — change them in index.css to
-// retheme the pins. Values mirror the /map page pins (see MapPage.tsx).
-const PIN_COLOR_VARS: Record<string, string> = {
-  Menders: '--mm-pin-mender',
-  'Member of the public': '--mm-pin-contributor',
-};
-
-const FALLBACK_PIN_COLOR = '#99C4CB';
 
 type EntryLevelMeta = {
   title: string;
@@ -50,25 +45,41 @@ const ENTRY_LEVEL_META: Record<EntryLevelOption, EntryLevelMeta> = {
   },
 };
 
-// Google Maps marker icons are SVG data URLs and can't reference var()
-// directly, so resolve the CSS custom property at runtime. Fallback mirrors
-// the current theme value (same pattern as StitchedLogo.tsx).
-const getPinColor = (level: string) => {
-  const varName = PIN_COLOR_VARS[level];
-  if (!varName) return FALLBACK_PIN_COLOR;
-  if (typeof document === 'undefined') return FALLBACK_PIN_COLOR;
-  const resolved = getComputedStyle(document.documentElement)
-    .getPropertyValue(varName)
-    .trim();
-  return resolved || FALLBACK_PIN_COLOR;
+const DEFAULT_CENTER: [number, number] = [51.505, -0.09]; // London
+const DEFAULT_PHONE_COUNTRY: CountryIso2 = 'gb';
+
+const getBrowserCountry = (): CountryIso2 => {
+  if (typeof navigator === 'undefined') return DEFAULT_PHONE_COUNTRY;
+  const region = navigator.language?.split('-')[1]?.trim();
+  return region && /^[a-z]{2}$/i.test(region) ? (region.toLowerCase() as CountryIso2) : DEFAULT_PHONE_COUNTRY;
 };
 
-const DEFAULT_CENTER: [number, number] = [51.505, -0.09]; // London
+const getCountryFromCoordinates = async (lat: number, lng: number): Promise<CountryIso2 | null> => {
+  const result = await reverseGeocodeDetails(lat, lng);
+  const countryCode = result?.countryCode?.trim().toLowerCase();
+  return countryCode && /^[a-z]{2}$/.test(countryCode) ? (countryCode as CountryIso2) : null;
+};
 
 const coordinatesMatch = (
   first: [number, number] | null,
   second: [number, number] | null,
 ) => Boolean(first && second && first[0] === second[0] && first[1] === second[1]);
+
+const normalizeSocialProfile = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  const isUrlOrDomainPath =
+    /^[a-z][a-z\d+.-]*:/i.test(trimmed) ||
+    trimmed.startsWith('//') ||
+    trimmed.includes('/') ||
+    (!trimmed.startsWith('@') && /^[^\s.]+\.[a-z]{2,}(?:$|[?#])/i.test(trimmed));
+
+  if (isUrlOrDomainPath) return trimmed;
+
+  const handle = trimmed.replace(/^@/, '');
+  return handle ? `https://instagram.com/${handle}` : '';
+};
 
 // ---------------------------------------------------------------------------
 // react-select helpers
@@ -200,9 +211,15 @@ export function AddMenderPage() {
   // ---- form fields ----
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [phoneDialCode, setPhoneDialCode] = useState('');
+  const [phoneCountry, setPhoneCountry] = useState<CountryIso2>(getBrowserCountry);
   const [address, setAddress] = useState('');
-  const [onlinePresence, setOnlinePresence] = useState('');
+  const [website, setWebsite] = useState('');
+  const [social, setSocial] = useState('');
+  const [email, setEmail] = useState('');
   const [entryLevel, setEntryLevel] = useState<string | null>(null);
+  const [locationVisibility, setLocationVisibility] = useState<'exact' | 'approx'>('exact');
+  const [locationVisibilityTouched, setLocationVisibilityTouched] = useState(false);
   const [isRevealingForm, setIsRevealingForm] = useState(false);
   const [types, setTypes] = useState<string[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
@@ -230,6 +247,7 @@ export function AddMenderPage() {
   const addressInputRef = useRef<HTMLInputElement>(null);
   const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestSelectedCoordinatesRef = useRef<[number, number] | null>(null);
+  const phoneInputInteractedRef = useRef(false);
   const pendingReverseGeocodeRef = useRef<Promise<string | null> | null>(null);
   const reverseGeocodeRequestIdRef = useRef(0);
   const addressManuallyEditedRef = useRef(false);
@@ -340,6 +358,11 @@ export function AddMenderPage() {
         (pos) => {
           setPosition([pos.coords.latitude, pos.coords.longitude]);
           setGeoResolved(true);
+          void getCountryFromCoordinates(pos.coords.latitude, pos.coords.longitude).then((country) => {
+            if (!country || phoneInputInteractedRef.current) return;
+            setPhone('');
+            setPhoneCountry(country);
+          });
         },
         () => {
           setPosition(DEFAULT_CENTER);
@@ -426,7 +449,7 @@ export function AddMenderPage() {
         const marker = new g.maps.Marker({
           map,
           position: { lat: initial[0], lng: initial[1] },
-          icon: createLocationPinIcon(g.maps, getPinColor('Menders'), '#ffffff'),
+          icon: createLocationPinIcon(g.maps, getStudioTypeColor(types), '#ffffff'),
           draggable: true,
         });
         markerRef.current = marker;
@@ -466,7 +489,7 @@ export function AddMenderPage() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ------------------------------------------------------------------
-  // Effect 3 — sync marker position + colour when position/entryLevel changes
+  // Effect 3 — sync marker position + colour when position/studio type changes
   // ------------------------------------------------------------------
   useEffect(() => {
     if (!position || !markerRef.current) return;
@@ -476,9 +499,9 @@ export function AddMenderPage() {
     const latLng = { lat: position[0], lng: position[1] };
     markerRef.current.setPosition(latLng);
     markerRef.current.setIcon(
-      createLocationPinIcon(g.maps, getPinColor(entryLevel ?? ''), '#ffffff'),
+      createLocationPinIcon(g.maps, getStudioTypeColor(types), '#ffffff'),
     );
-  }, [position, entryLevel]);
+  }, [position, types]);
 
   // ------------------------------------------------------------------
   // Form helpers
@@ -492,6 +515,8 @@ export function AddMenderPage() {
   const onEntryLevelChange = (level: string) => {
     if (level === entryLevel) return;
     setEntryLevel(level);
+    setLocationVisibility(level === 'Member of the public' ? 'approx' : 'exact');
+    setLocationVisibilityTouched(false);
     if (level === 'Menders') resetReviewFields();
 
     // Every role change gets the reveal choreography — a brief shimmer so
@@ -512,6 +537,15 @@ export function AddMenderPage() {
     if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
     setIsRevealingForm(false);
     setEntryLevel(null);
+    setLocationVisibility('exact');
+    setLocationVisibilityTouched(false);
+  };
+
+  const onStudioTypeChange = (nextTypes: string[]) => {
+    setTypes(nextTypes);
+    if (entryLevel === 'Menders' && !locationVisibilityTouched) {
+      setLocationVisibility(nextTypes.includes('home') ? 'approx' : 'exact');
+    }
   };
 
   // ------------------------------------------------------------------
@@ -549,6 +583,10 @@ export function AddMenderPage() {
       (addressManuallyEditedRef.current ? address.trim() : lookedUpAddress || address.trim()) ||
       'Location selected on map';
     const normalizedReview = Number.isFinite(reviewStars) ? Math.min(5, Math.max(0, reviewStars)) : 0;
+    const phoneDigits = phone.replace(/\D/g, '');
+    const dialCodeDigits = phoneDialCode.replace(/\D/g, '');
+    const submittedPhone = phoneDigits.length > dialCodeDigits.length ? phone : '';
+    const submittedSocial = normalizeSocialProfile(social);
 
     const payload = {
       name,
@@ -558,10 +596,11 @@ export function AddMenderPage() {
       address: resolvedAddress,
       latitude: selectedPosition[0],
       longitude: selectedPosition[1],
-      phone,
-      contact: phone,
-      website: onlinePresence || undefined,
-      online_presence: onlinePresence,
+      location_visibility: entryLevel === 'Member of the public' ? 'approx' : locationVisibility,
+      ...(submittedPhone ? { phone: submittedPhone } : {}),
+      website: website || undefined,
+      social: submittedSocial || undefined,
+      email: email || undefined,
       categories,
       regional_techniques: regionalTechniques,
       review_text: reviewText,
@@ -573,7 +612,9 @@ export function AddMenderPage() {
         types,
         categories,
         regional_techniques: regionalTechniques,
-        online_presence: onlinePresence,
+        website,
+        social: submittedSocial,
+        email,
         review_text: reviewText,
       }),
     };
@@ -710,58 +751,146 @@ export function AddMenderPage() {
                   />
                 </div>
 
-                {/* Type + Phone */}
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className={FIELD_LABEL_CLASS}>Studio Type</label>
-                    <Select
-                      options={typeOptions}
-                      value={typeOptions.find((o) => types.includes(o.value)) ?? null}
-                      onChange={(opt) => setTypes(toSingleValue(opt))}
-                      placeholder="Select studio type..."
-                      isClearable
-                      menuPortalTarget={selectMenuPortalTarget}
-                      menuPosition="fixed"
-                      styles={selectStyles}
-                    />
-                  </div>
+                {/* Studio Type */}
+                <div>
+                  <label className={FIELD_LABEL_CLASS}>Studio Type</label>
+                  <Select
+                    options={typeOptions}
+                    value={typeOptions.find((o) => types.includes(o.value)) ?? null}
+                    onChange={(opt) => onStudioTypeChange(toSingleValue(opt))}
+                    placeholder="Select studio type..."
+                    isClearable
+                    menuPortalTarget={selectMenuPortalTarget}
+                    menuPosition="fixed"
+                    styles={selectStyles}
+                  />
+                </div>
 
+                {/* Location privacy is relevant only to Home menders. */}
+                {types.includes('home') ? (
+                  <div className="rounded-2xl border border-dashed border-[#e5e7eb] bg-white p-3" role="group" aria-labelledby="location-visibility-label">
+                    <p id="location-visibility-label" className={FIELD_LABEL_CLASS}>Location visibility</p>
+                    {entryLevel === 'Member of the public' ? (
+                      <div className="rounded-xl bg-[#f5f6f8] px-3 py-2.5 text-xs leading-[1.4] text-[var(--mm-text-soft)]">
+                        <p className="font-bold text-[var(--mm-text)]">Approximate zone</p>
+                        <p className="mt-0.5">Contributor locations are always shown as a nearby point within a 200 m zone.</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Location visibility">
+                          {([
+                            ['exact', 'Exact', 'Show your submitted address and pin.'],
+                            ['approx', 'Approximate', 'Show a nearby point within a 200 m zone.'],
+                          ] as const).map(([value, label, description]) => (
+                            <label key={value} className="flex h-full cursor-pointer">
+                              <input
+                                type="radio"
+                                name="location-visibility"
+                                value={value}
+                                checked={locationVisibility === value}
+                                onChange={() => {
+                                  setLocationVisibility(value);
+                                  setLocationVisibilityTouched(true);
+                                }}
+                                className="peer sr-only"
+                              />
+                              <span className="block h-full w-full rounded-xl border border-dashed border-[#e5e7eb] px-3 py-2.5 transition-colors peer-checked:border-[#171b17] peer-checked:bg-[#f5f6f8] peer-focus-visible:ring-2 peer-focus-visible:ring-brand-light">
+                                <span className="flex items-start gap-2">
+                                  {value === 'exact' ? (
+                                    <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#d4a72c]" aria-hidden="true" />
+                                  ) : (
+                                    <VectorSquare className="mt-0.5 h-4 w-4 shrink-0 text-[#d4a72c]" aria-hidden="true" />
+                                  )}
+                                  <span className="min-w-0">
+                                    <span className="block text-xs font-bold text-[var(--mm-text)]">{label}</span>
+                                    <span className="mt-0.5 block text-[11px] leading-[1.35] text-[var(--mm-muted)]">{description}</span>
+                                  </span>
+                                </span>
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : null}
+
+                {/* Tel Number + Email */}
+                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label htmlFor="phone" className={FIELD_LABEL_CLASS}>
                       Tel Number
                     </label>
-                    <PhoneInput
-                      defaultCountry="gb"
-                      value={phone}
-                      onChange={(nextPhone) => setPhone(nextPhone)}
-                      placeholder="Phone"
-                      allowMaskOverflow
-                      inputProps={{ id: 'phone', name: 'phone' }}
-                      className="mymenders-phone-input"
-                      inputClassName="mymenders-phone-input__field"
-                      countrySelectorStyleProps={{
-                        buttonClassName: 'mymenders-phone-input__country-button',
-                        dropdownStyleProps: {
-                          className: 'mymenders-phone-input__dropdown',
-                        },
-                      }}
+                    <div onPointerDown={() => { phoneInputInteractedRef.current = true; }}>
+                      <PhoneInput
+                        key={phoneCountry}
+                        defaultCountry={phoneCountry}
+                        value={phone}
+                        onChange={(nextPhone, metadata) => {
+                          setPhone(nextPhone);
+                          setPhoneDialCode(metadata.country.dialCode);
+                        }}
+                        placeholder="Phone"
+                        allowMaskOverflow
+                        inputProps={{
+                          id: 'phone',
+                          name: 'phone',
+                          onInput: () => {
+                            phoneInputInteractedRef.current = true;
+                          },
+                        }}
+                        className="mymenders-phone-input"
+                        inputClassName="mymenders-phone-input__field"
+                        countrySelectorStyleProps={{
+                          buttonClassName: 'mymenders-phone-input__country-button',
+                          dropdownStyleProps: {
+                            className: 'mymenders-phone-input__dropdown',
+                          },
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label htmlFor="email" className={FIELD_LABEL_CLASS}>
+                      Email address
+                    </label>
+                    <input
+                      id="email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="mymenders-field w-full border px-3 py-2 text-sm outline-none"
                     />
                   </div>
                 </div>
 
-                {/* Social */}
-                <div>
-                  <label htmlFor="online" className={FIELD_LABEL_CLASS}>
-                    Social
-                  </label>
-                  <input
-                    id="online"
-                    type="text"
-                    value={onlinePresence}
-                    onChange={(e) => setOnlinePresence(e.target.value)}
-                    placeholder="Website or social link"
-                    className="mymenders-field w-full border px-3 py-2 text-sm outline-none"
-                  />
+                {/* Website + Social */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="website" className={FIELD_LABEL_CLASS}>
+                      Website
+                    </label>
+                    <input
+                      id="website"
+                      type="text"
+                      value={website}
+                      placeholder="www.yourwebsite.com"
+                      onChange={(e) => setWebsite(e.target.value)}
+                      className="mymenders-field w-full border px-3 py-2 text-sm outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="social" className={FIELD_LABEL_CLASS}>
+                      Social
+                    </label>
+                    <input
+                      id="social"
+                      type="text"
+                      value={social}
+                      onChange={(e) => setSocial(e.target.value)}
+                      className="mymenders-field w-full border px-3 py-2 text-sm outline-none"
+                    />
+                  </div>
                 </div>
 
                 {/* Categories */}
@@ -769,6 +898,8 @@ export function AddMenderPage() {
                   <p className={FIELD_LABEL_CLASS}>Categories</p>
                   <Select
                     isMulti
+                    closeMenuOnSelect={false}
+                    blurInputOnSelect={false}
                     options={categoryOptions}
                     value={categoryOptions
                       .flatMap((group) => group.options)
@@ -788,6 +919,8 @@ export function AddMenderPage() {
                   </label>
                   <Select
                     isMulti
+                    closeMenuOnSelect={false}
+                    blurInputOnSelect={false}
                     options={techniqueOptions}
                     value={techniqueOptions.filter((o) => regionalTechniques.includes(o.value))}
                     onChange={(opts) => setRegionalTechniques(toValues(opts))}
