@@ -674,11 +674,11 @@ const ensureVendorLayers = async (map: maplibregl.Map) => {
         'circle-color': [
           'step',
           ['get', 'point_count'],
-          '#A8D4F5',
+          '#3a3936',
           10,
-          '#6FB7E8',
+          '#2b2a2e',
           25,
-          '#3E92CC',
+          '#1b1b1d',
         ],
         'circle-radius': [
           'step',
@@ -689,8 +689,8 @@ const ensureVendorLayers = async (map: maplibregl.Map) => {
           25,
           28,
         ],
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': 2,
+        'circle-stroke-color': '#efe9dd',
+        'circle-stroke-width': 2.5,
         'circle-opacity': 0.95,
       },
     });
@@ -708,7 +708,7 @@ const ensureVendorLayers = async (map: maplibregl.Map) => {
         'text-size': 12,
       },
       paint: {
-        'text-color': '#ffffff',
+        'text-color': '#efe9dd',
       },
     });
   }
