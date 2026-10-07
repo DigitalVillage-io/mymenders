@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import Select, { type GroupBase, type MultiValue } from 'react-select';
 import type { Vendor } from '../types';
+import { LocationPicker } from './LocationPicker';
 import { getGroupedTaxonomyOptions, getTaxonomyOptions } from '../../shared/vendorTaxonomy.js';
 
 type Props = {
@@ -54,6 +55,7 @@ export function MenderEditor({ value, saving, onSave, onVisibilityChange, onCanc
         <Field label="Photo URL"><input className={inputClass} value={form.photo_url || ''} onChange={(e) => set('photo_url', e.target.value)} /></Field>
       </div>
     </div>
+    <div className="block"><span className="add-mender-modal-label mb-1.5 block text-[11px] uppercase">Pin location</span><LocationPicker latitude={form.latitude} longitude={form.longitude} onChange={(latitude, longitude) => setForm((current) => ({ ...current, latitude, longitude }))} /></div>
     <Field label="Review / notes"><textarea rows={4} className={inputClass} value={form.review_text || ''} onChange={(e) => set('review_text', e.target.value)} /></Field>
     <div className="flex gap-3 border-t border-[#e5e5e5] pt-5"><button type="submit" disabled={saving} className="admin-action rounded-full bg-[#0a0a0a] px-5 py-2.5 text-sm text-white hover:bg-black disabled:opacity-50">{saving ? 'Saving…' : 'Save changes'}</button>{onCancel && <button type="button" onClick={onCancel} className="admin-action rounded-full border border-[#d5d5d5] bg-white px-5 py-2.5 text-sm">Cancel</button>}</div>
   </form>;

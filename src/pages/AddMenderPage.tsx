@@ -264,7 +264,8 @@ export function AddMenderPage() {
     const map = mapRef.current;
     if (!map) return;
     map.setCenter({ lat, lng });
-    map.setZoom(16);
+    // Close enough to see individual buildings, so the pin lands on the right door.
+    map.setZoom(18);
   }, []);
 
   const enableAddressSuggestions = useCallback(() => {
@@ -416,7 +417,12 @@ export function AddMenderPage() {
         const map = new g.maps.Map(mapContainerRef.current, {
           center: { lat: initial[0], lng: initial[1] },
           zoom: 13,
-          mapTypeControl: false,
+          // Satellite (hybrid) view helps place the pin on the exact building.
+          mapTypeControl: true,
+          mapTypeControlOptions: {
+            mapTypeIds: ['roadmap', 'hybrid'],
+            position: g.maps.ControlPosition.TOP_RIGHT,
+          },
           streetViewControl: false,
         });
         mapRef.current = map;
