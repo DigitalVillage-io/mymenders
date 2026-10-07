@@ -389,6 +389,76 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
+@layer components {
+  /* Dark floating surfaces of the map page (rail, panel, controls, card). */
+  .mm-glass {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 18px;
+    background: rgba(22, 22, 24, 0.88);
+    color: #ece8e1;
+    box-shadow: 0 20px 44px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
+  .mm-glass-button {
+    position: relative;
+    display: inline-flex;
+    height: 2.75rem;
+    width: 2.75rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    color: #bdb8ae;
+    transition: background-color 150ms, color 150ms;
+  }
+
+  .mm-glass-button:hover,
+  .mm-glass-button[aria-pressed="true"],
+  .mm-glass-button[aria-expanded="true"] {
+    background: rgba(255, 255, 255, 0.09);
+    color: #ffffff;
+  }
+
+  .mm-glass-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  .mm-glass-input {
+    width: 100%;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    color: #ece8e1;
+    font-size: 0.875rem;
+  }
+
+  .mm-glass-input::placeholder {
+    color: #7d786f;
+  }
+
+  .mm-glass-input:focus {
+    border-color: rgba(239, 233, 221, 0.45);
+    outline: none;
+  }
+
+  .mm-dark-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  }
+}
+
+/* Loading placeholders inside the dark map panels. */
+.mm-glass .mymenders-shimmer-block {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.mm-glass .mymenders-shimmer-block::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+}
+
 /* Night sky behind the Plaster globe; MapLibre leaves the area around the
    sphere transparent, so the container background shows through. */
 .mymenders-starfield {

@@ -3,17 +3,18 @@ import maplibregl from 'maplibre-gl';
 import type { GeoJSONSource } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import {
-  Cog,
   Globe,
   Globe2,
   Info,
+  Layers,
+  List,
+  LocateFixed,
   Instagram,
   Linkedin,
   Mail,
   MapPin,
   MessageSquareQuote,
   Minus,
-  Navigation,
   Phone,
   Loader2,
   Plus,
@@ -28,6 +29,7 @@ import {
   X as XBrand,
 } from 'lucide-react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { useNavigate } from 'react-router-dom';
 import { Vendor } from '../types';
 import {
   getTaxonomyLabel,
@@ -782,7 +784,7 @@ const VENDOR_LIST_SKELETON_COUNT = 7;
 const VendorListSkeleton = () => (
   <div aria-hidden="true">
     {Array.from({ length: VENDOR_LIST_SKELETON_COUNT }, (_, index) => (
-      <div key={index} className="border-b border-[var(--mm-border)] py-3 pl-3 pr-3 last:border-b-0">
+      <div key={index} className="py-3 pl-3 pr-3">
         <div className="pl-1">
           <div className="flex items-baseline justify-between gap-2">
             <div className="mymenders-shimmer-block h-3.5 w-2/5 rounded-md" />
@@ -801,6 +803,7 @@ const VendorListSkeleton = () => (
 );
 
 export function MapPage() {
+  const navigate = useNavigate();
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -810,6 +813,7 @@ export function MapPage() {
   const [findingLocation, setFindingLocation] = useState(false);
   const [isMapReady, setIsMapReady] = useState(false);
   const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
+  const [isPanelOpen, setIsPanelOpen] = useState(true);
   const [selectedBasemapStyleId, setSelectedBasemapStyleId] =
     useState<(typeof BASEMAP_STYLES)[number]['id']>(DEFAULT_BASEMAP_STYLE_ID);
   const [selectedVendorId, setSelectedVendorId] = useState<number | null>(null);
@@ -1242,75 +1246,154 @@ export function MapPage() {
     }
   };
 
+  const filterButtonBadge = hasActiveFilters ? (
+    <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#efe9dd] px-1 text-[10px] leading-none text-[#171b17]">
+      {activeFilterCount}
+    </span>
+  ) : null;
+
   return (
-    <div className="relative w-full h-[calc(100vh-80px)] mt-20 z-0">
-      <div className="grid h-full min-h-0 overflow-visible grid-cols-1 md:grid-cols-[25%_75%]">
+    <div className="relative h-screen w-full overflow-hidden z-0">
+      {/* maplibre-gl.css forces position: relative on the map element, so the
+          full-bleed positioning lives on a wrapper. */}
+      <div className="absolute inset-0">
+        <div
+          ref={mapContainerRef}
+          className={`h-full w-full ${selectedBasemapStyleId === 'plaster' ? 'mymenders-starfield' : ''}`}
+        />
+      </div>
+
+      {/* Desktop tool rail */}
+      <nav
+        aria-label="Map tools"
+        className="mm-glass absolute bottom-4 left-4 top-24 z-30 hidden w-[60px] flex-col items-center gap-1.5 py-2 md:flex"
+      >
+        <button
+          type="button"
+          onClick={() => setIsPanelOpen((value) => !value)}
+          className="mm-glass-button"
+          aria-label="Mender list"
+          aria-pressed={isPanelOpen}
+          title="Mender list"
+        >
+          <List className="h-5 w-5" aria-hidden="true" />
+        </button>
+        <button
+          ref={filterButtonRef}
+          type="button"
+          onClick={() => setIsFilterDrawerOpen((value) => !value)}
+          className="mm-glass-button"
+          aria-label="Filter menders"
+          aria-expanded={isFilterDrawerOpen}
+          aria-controls="vendor-filter-drawer"
+          title="Filters"
+        >
+          <SlidersHorizontal className="h-5 w-5" aria-hidden="true" />
+          {filterButtonBadge}
+        </button>
+        <button
+          type="button"
+          onClick={locateUser}
+          disabled={findingLocation}
+          className="mm-glass-button"
+          aria-label="Find nearby menders"
+          title="Near me"
+        >
+          {findingLocation ? (
+            <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+          ) : (
+            <LocateFixed className="h-5 w-5" aria-hidden="true" />
+          )}
+        </button>
+
+        <div className="relative mt-auto" ref={styleMenuRef}>
+          <button
+            type="button"
+            onClick={() => setIsStyleMenuOpen((value) => !value)}
+            className="mm-glass-button"
+            aria-label="Map style"
+            aria-expanded={isStyleMenuOpen}
+            title="Map style"
+          >
+            <Layers className="h-5 w-5" aria-hidden="true" />
+          </button>
+
+          {isStyleMenuOpen && (
+            <div className="mm-glass absolute bottom-0 left-full z-30 ml-3 w-44 bg-[#161618] p-1.5">
+              {BASEMAP_STYLES.map((style) => (
+                <button
+                  key={style.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedBasemapStyleId(style.id);
+                    setIsStyleMenuOpen(false);
+                  }}
+                  className={`w-full rounded-xl px-3 py-2 text-left text-sm transition-colors ${
+                    selectedBasemapStyleId === style.id
+                      ? 'bg-white/10 text-white'
+                      : 'text-[#bdb8ae] hover:bg-white/5 hover:text-white'
+                  }`}
+                >
+                  {style.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </nav>
+
+      {/* Desktop mender panel */}
+      {isPanelOpen && (
         <aside
-          className="relative z-20 hidden md:flex md:flex-col min-h-0 overflow-visible bg-[#fafafa] border-r border-[#e5e7eb]"
+          className="mm-glass absolute bottom-4 left-[92px] top-24 z-20 hidden w-[320px] flex-col overflow-hidden md:flex"
           onWheel={(event) => {
             event.stopPropagation();
           }}
         >
-          <div className="shrink-0 border-b border-[#e5e7eb] px-3 py-3">
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <label htmlFor="menders-search-desktop" className="sr-only">Search menders</label>
+          <div className="shrink-0 space-y-3 p-3">
+            <div className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2.5">
+              <h2 className="text-[15px] text-[#ece8e1]">Menders</h2>
+              <span className="rounded-md bg-white/10 px-2 py-0.5 text-xs tabular-nums text-[#bdb8ae]">
+                {isLoading ? '…' : displayedVendorsWithDistance.length}
+              </span>
+            </div>
+
+            <div className="relative">
+              <label htmlFor="menders-search-desktop" className="sr-only">Search menders</label>
+              <input
+                id="menders-search-desktop"
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search menders…"
+                aria-label="Search menders"
+                className="mm-glass-input py-2 pl-3 pr-9"
+              />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-[#9a958b] transition-colors hover:bg-white/10 hover:text-white"
+                  aria-label="Clear search"
+                >
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+              ) : (
                 <Search
-                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a877d]"
+                  className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7d786f]"
                   aria-hidden="true"
                 />
-                <input
-                  id="menders-search-desktop"
-                  type="search"
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="Search menders…"
-                  aria-label="Search menders"
-                  className="w-full rounded-full border border-[#e5e7eb] bg-white py-2 pl-9 pr-8 text-sm text-[#171b17] placeholder:text-[#8a877d] focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
-                />
-                {searchQuery ? (
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-[var(--mm-faint)] transition-[background-color,color] hover:bg-[var(--mm-panel-muted)] hover:text-[var(--mm-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                    aria-label="Clear search"
-                  >
-                    <X className="h-3.5 w-3.5" aria-hidden="true" />
-                  </button>
-                ) : null}
-              </div>
-
-              <button
-                ref={filterButtonRef}
-                type="button"
-                onClick={() => setIsFilterDrawerOpen((value) => !value)}
-                className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${
-                  isFilterDrawerOpen || hasActiveFilters
-                    ? 'border-brand-dark bg-brand-dark text-brand-dark-on'
-                    : 'border-dashed border-[var(--mm-border-strong)] bg-[var(--mm-panel)] text-[var(--mm-text-soft)] hover:border-[var(--mm-muted)] hover:bg-[var(--mm-panel-muted)]'
-                }`}
-                aria-label="Filter menders"
-                aria-expanded={isFilterDrawerOpen}
-                aria-controls="vendor-filter-drawer"
-              >
-                <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
-                Filters
-                {hasActiveFilters ? (
-                  <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#f4a261] px-1 text-[10px] leading-none text-[#171b17]">
-                    {activeFilterCount}
-                  </span>
-                ) : null}
-              </button>
+              )}
             </div>
 
             {activeFilterChips.length ? (
-              <div className="mt-2.5 flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-1.5">
                 {activeFilterChips.map((chip) => (
                   <button
                     key={`${chip.groupKey}-${chip.value}`}
                     type="button"
                     onClick={() => toggleFilterOption(chip.groupKey, chip.value)}
-                    className="inline-flex max-w-[160px] items-center gap-1 rounded-full bg-brand-dark py-1 pl-2.5 pr-1.5 text-xs text-brand-dark-on transition-colors hover:bg-brand-dark-hover"
+                    className="inline-flex max-w-[160px] items-center gap-1 rounded-full bg-white/10 py-1 pl-2.5 pr-1.5 text-xs text-[#ece8e1] transition-colors hover:bg-white/15"
                     title={`Remove ${chip.displayLabel}`}
                   >
                     <span className="truncate">{chip.displayLabel}</span>
@@ -1321,9 +1404,9 @@ export function MapPage() {
             ) : null}
 
             {(isLoading || hasSearchOrFilters) && (
-              <div className="mt-3 flex items-center justify-end gap-3">
+              <div className="flex items-center justify-end gap-3">
                 {isLoading && (
-                  <p className="mr-auto text-xs text-[var(--mm-muted)]" role="status" aria-live="polite">
+                  <p className="mr-auto text-xs text-[#9a958b]" role="status" aria-live="polite">
                     Loading menders…
                   </p>
                 )}
@@ -1331,7 +1414,7 @@ export function MapPage() {
                   <button
                     type="button"
                     onClick={clearAllFilters}
-                    className="shrink-0 text-xs text-[var(--mm-muted)] underline decoration-[var(--mm-border-strong)] underline-offset-2 transition-[color] hover:text-[var(--mm-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                    className="shrink-0 text-xs text-[#9a958b] underline decoration-white/25 underline-offset-2 transition-colors hover:text-white"
                   >
                     Clear search and filters
                   </button>
@@ -1340,25 +1423,20 @@ export function MapPage() {
             )}
           </div>
 
-          <div
-            className="flex-1 min-h-0 overflow-y-auto"
-            onWheel={(event) => {
-              event.stopPropagation();
-            }}
-          >
+          <div className="mm-dark-scroll min-h-0 flex-1 overflow-y-auto px-1.5">
             {isLoading ? (
               <VendorListSkeleton />
             ) : loadError ? (
-              <div className="mymenders-map-empty-state m-3">
-                <p className="font-medium text-[var(--mm-text)]">Menders are temporarily unavailable</p>
-                <p className="mt-1 text-xs leading-5 text-[var(--mm-muted)]">Check your connection and try again.</p>
+              <div className="m-1.5 rounded-xl bg-white/5 p-4">
+                <p className="text-sm text-[#ece8e1]">Menders are temporarily unavailable</p>
+                <p className="mt-1 text-xs leading-5 text-[#9a958b]">Check your connection and try again.</p>
                 <button
                   type="button"
                   onClick={() => {
                     setIsLoading(true);
                     setReloadKey((key) => key + 1);
                   }}
-                  className="mymenders-map-empty-state__action mt-3"
+                  className="inline-flex h-9 items-center justify-center rounded-xl border border-white/15 px-3 text-xs text-[#ece8e1] transition-colors hover:bg-white/10 mt-3"
                 >
                   Try again
                 </button>
@@ -1368,9 +1446,8 @@ export function MapPage() {
                 const coordinates = getVendorCoordinates(vendor);
                 const isActive = selectedVendorId === vendor.id;
                 const isClickable = Boolean(coordinates);
-                const categories = getVendorFilterValues(vendor, 'categories');
-                const techniques = getVendorFilterValues(vendor, 'regional_techniques');
                 const vendorName = toDisplayName(vendor.name) || 'Unnamed mender';
+                const primaryType = vendor.types?.[0];
 
                 return (
                   <button
@@ -1381,329 +1458,241 @@ export function MapPage() {
                       openVendorPopup(vendor, { focus: true, zoom: DIRECTION_ZOOM });
                     }}
                     disabled={!isClickable}
-                    className={`group relative w-full border-b border-[var(--mm-border)] last:border-b-0 py-3 pl-3 pr-3 text-left transition-[background-color,opacity] ${
-                      isActive
-                        ? 'bg-[var(--mm-border)]'
-                        : isClickable
-                          ? 'hover:bg-[var(--mm-panel-muted)]'
-                          : 'bg-[var(--mm-panel)]/30 opacity-65'
+                    className={`flex w-full items-start gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors ${
+                      isActive ? 'bg-white/10' : isClickable ? 'hover:bg-white/5' : 'opacity-50'
                     }`}
                     title={isClickable ? `Fly to ${vendorName}` : 'Location unavailable'}
                   >
-                    <span
+                    <MapPin
+                      className="mt-0.5 h-5 w-5 shrink-0"
+                      style={{ color: getStudioTypeColor(vendor.types), fill: 'currentColor', stroke: '#ece8e1' }}
                       aria-hidden="true"
-                      className={`pointer-events-none absolute inset-y-0 left-0 w-0.5 transition-opacity ${isActive ? 'opacity-100 bg-brand-dark-text' : 'bg-[var(--mm-border-strong)] opacity-0 group-hover:opacity-30'}`}
                     />
-                    <div className="min-w-0 pl-1">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <p className="mymenders-card-title-semi truncate text-sm text-[var(--mm-text)]">{vendorName}</p>
-                        {distanceKm !== undefined && distanceKm < MAX_LIST_DISTANCE_KM ? (
-                          <span className="shrink-0 text-[10px] tabular-nums text-[var(--mm-muted)]">
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-baseline justify-between gap-2">
+                        <span className="truncate text-sm text-[#ece8e1]">{vendorName}</span>
+                        {formatDistance(distanceKm) ? (
+                          <span className="shrink-0 text-[10px] tabular-nums text-[#9a958b]">
                             {formatDistance(distanceKm)}
                           </span>
                         ) : null}
-                      </div>
+                      </span>
+                      {primaryType ? (
+                        <span className="mt-0.5 block truncate text-xs text-[#bdb8ae]">
+                          {getTaxonomyLabel('types', primaryType)}
+                        </span>
+                      ) : null}
                       {vendor.location_visibility === 'approx' ? (
-                        <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--mm-muted)]">
-                          <MapPin className="w-3 h-3 shrink-0" />
-                          <span className="truncate">Contact the mender for the exact location</span>
-                        </p>
+                        <span className="mt-0.5 block truncate text-xs text-[#8a857b]">
+                          Contact the mender for the exact location
+                        </span>
                       ) : vendor.address ? (
-                        <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--mm-muted)]">
-                          <MapPin className="w-3 h-3 shrink-0" />
-                          <span className="truncate">{vendor.address}</span>
-                        </p>
+                        <span className="mt-0.5 block truncate text-xs text-[#8a857b]">{vendor.address}</span>
                       ) : null}
-                      {!!categories.length ? (
-                        <div className="mt-1.5 flex flex-wrap gap-1">
-                          {categories.map((category) => (
-                            <span
-                              key={`${vendor.id}-category-${category}`}
-                              className="mymenders-cloth-chip--categories rounded-full px-2 py-0.5 text-[10px] "
-                            >
-                              {getTaxonomyLabel('categories', category)}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-                      {!!techniques.length ? (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {techniques.map((technique) => (
-                            <span
-                              key={`${vendor.id}-technique-${technique}`}
-                              className="mymenders-cloth-chip--techniques rounded-full px-2 py-0.5 text-[10px] "
-                            >
-                              {getTaxonomyLabel('regional_techniques', technique)}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
+                    </span>
                   </button>
                 );
               })
             ) : (
-              <div className="mymenders-map-empty-state m-3">
-                <p className="font-medium text-[var(--mm-text)]">
-                  {hasSearchOrFilters ? 'No menders match this search' : 'No menders have been added yet'}
+              <div className="m-1.5 rounded-xl bg-white/5 p-4">
+                <p className="text-sm text-[#ece8e1]">
+                  {hasSearchOrFilters ? 'No menders match this search' : 'No menders in this part of the map'}
                 </p>
-                <p className="mt-1 text-xs leading-5 text-[var(--mm-muted)]">
+                <p className="mt-1 text-xs leading-5 text-[#9a958b]">
                   {hasSearchOrFilters
                     ? 'Try a different search or clear the current filters.'
-                    : 'Menders added to the directory will appear here.'}
+                    : 'Move or zoom out the map to see more menders.'}
                 </p>
                 {hasSearchOrFilters ? (
-                  <button
-                    type="button"
-                    onClick={clearAllFilters}
-                    className="mymenders-map-empty-state__action mt-3"
-                  >
+                  <button type="button" onClick={clearAllFilters} className="inline-flex h-9 items-center justify-center rounded-xl border border-white/15 px-3 text-xs text-[#ece8e1] transition-colors hover:bg-white/10 mt-3">
                     Clear search and filters
                   </button>
-                ) : (
-                  <a href="/add" className="mymenders-map-empty-state__action mt-3">
-                    Add a mender
-                  </a>
-                )}
+                ) : null}
               </div>
             )}
           </div>
+
+          <div className="shrink-0 p-3">
+            <button
+              type="button"
+              onClick={() => navigate('/add')}
+              className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-[#efe9dd] text-sm text-[#171b17] transition-colors hover:bg-white"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add Mender
+            </button>
+          </div>
         </aside>
+      )}
 
-        <div className="relative z-0">
-          <div
-            ref={mapContainerRef}
-            className={`w-full h-full ${selectedBasemapStyleId === 'plaster' ? 'mymenders-starfield' : ''}`}
+      {/* Mobile search + filters (below md) */}
+      <div className="absolute left-4 right-4 top-24 z-10 flex items-center gap-2 md:hidden">
+        <div className="mm-glass relative flex-1 rounded-xl p-1">
+          <Search
+            className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7d786f]"
+            aria-hidden="true"
           />
-
-          {/* Mobile search + filters (below md) */}
-          <div className="absolute left-4 right-4 top-4 z-10 flex items-center gap-2 md:hidden">
-            <div className="relative min-w-0 flex-1">
-              <label htmlFor="menders-search-mobile" className="sr-only">Search menders</label>
-              <Search
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a877d]"
-                aria-hidden="true"
-              />
-              <input
-                id="menders-search-mobile"
-                type="search"
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search menders…"
-                aria-label="Search menders"
-                className="w-full rounded-full border border-[#e5e7eb] bg-white/95 py-2.5 pl-9 pr-4 text-sm text-[#171b17] shadow-[0_2px_12px_rgba(15,23,42,0.08)] backdrop-blur-sm placeholder:text-[#8a877d] focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsFilterDrawerOpen((value) => !value)}
-              className="mymenders-map-control relative h-11 w-11 shrink-0"
-              aria-label="Filter menders"
-              aria-expanded={isFilterDrawerOpen}
-              aria-controls="vendor-filter-drawer"
-            >
-              <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
-              {hasActiveFilters ? (
-                <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#f4a261] px-1 text-[10px] leading-none text-[#171b17]">
-                  {activeFilterCount}
-                </span>
-              ) : null}
-            </button>
-            <button
-              type="button"
-              onClick={locateUser}
-              disabled={findingLocation}
-              className="mymenders-map-control h-11 shrink-0 px-3 text-xs sm:px-4"
-              title="Near me"
-              aria-label="Find nearby menders"
-            >
-              {findingLocation ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#8a877d]" /> : <Navigation className="h-4 w-4 shrink-0" />}
-              <span>Near me</span>
-            </button>
-          </div>
-
-          {isLoading && (
-            <div className="mymenders-map-status absolute bottom-6 left-4 z-10 md:hidden" role="status" aria-live="polite">
-              Loading menders…
-            </div>
-          )}
-
-          {isFilterDrawerOpen && (
-            <div
-              id="vendor-filter-drawer"
-              ref={filterDrawerRef}
-              className="fixed inset-x-0 bottom-0 z-20 flex max-h-[70vh] flex-col rounded-t-2xl border-t border-[#e5e7eb] bg-[#fafafa] shadow-[0_-8px_32px_rgba(15,23,42,0.12)] backdrop-blur-sm md:absolute md:bottom-0 md:left-0 md:top-0 md:max-h-none md:w-[min(340px,calc(100vw-25vw))] md:rounded-none md:border-r md:border-t-0 md:shadow-[18px_0_34px_rgba(15,23,42,0.12)]"
-              aria-labelledby="vendor-filter-drawer-title"
-              onWheel={(event) => {
-                event.stopPropagation();
-              }}
-            >
-              <div className="flex shrink-0 items-center justify-between border-b border-[#e5e7eb] px-4 py-3">
-                <h2 id="vendor-filter-drawer-title" className="text-sm font-medium text-[var(--mm-text)]">Filter menders</h2>
-                <button
-                  type="button"
-                  onClick={() => setIsFilterDrawerOpen(false)}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#68665f] transition-colors hover:bg-[#f3f4f6] hover:text-[#171b17]"
-                  aria-label="Close filters"
-                >
-                  <X className="h-4 w-4" aria-hidden="true" />
-                </button>
-              </div>
-
-              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-                {FILTER_GROUPS.map(({ key, label, options }) => {
-                  return (
-                    <section key={key} className="border-b border-[#e5e7eb] py-3 first:pt-0 last:border-b-0">
-                      <div className="mb-2 flex items-center justify-between gap-3">
-                        <h3 className="mymenders-field-label-font text-[11px] uppercase text-[var(--mm-muted)]">
-                          {label}
-                        </h3>
-                        {selectedFilters[key].length ? (
-                          <span className="rounded-full bg-[var(--mm-panel-muted)] px-2 py-0.5 text-[11px] text-[var(--mm-muted)]">
-                            {selectedFilters[key].length}
-                          </span>
-                        ) : null}
-                      </div>
-
-                      <div className="flex flex-wrap gap-1.5">
-                        {options.map((option) => {
-                          const checked = selectedFilters[key].includes(option.id);
-                          return (
-                            <button
-                              key={`${key}-${option.id}`}
-                              type="button"
-                              onClick={() => toggleFilterOption(key, option.id)}
-                              aria-pressed={checked}
-                              className={`inline-flex max-w-full items-center rounded-full border px-3 py-1.5 text-xs leading-tight transition-colors ${
-                                checked
-                                  ? 'border-brand-dark bg-brand-dark text-brand-dark-on'
-                                  : 'border-dashed border-[var(--mm-border-strong)] bg-[var(--mm-panel)] text-[var(--mm-text-soft)] hover:border-[var(--mm-muted)] hover:bg-[var(--mm-panel-muted)]'
-                              }`}
-                            >
-                              <span className="min-w-0 truncate">{option.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </section>
-                  );
-                })}
-              </div>
-
-              <div className="shrink-0 border-t border-[#e5e7eb] p-3">
-                <button
-                  type="button"
-                  onClick={clearAllFilters}
-                  disabled={!hasSearchOrFilters}
-                  className="mymenders-field flex h-10 w-full items-center justify-center border px-3 text-sm text-[#3d403b] transition-colors hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-45"
-                >
-                  Clear search and filters
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="absolute right-6 top-6 z-10 hidden items-center gap-2 md:flex">
-            <button
-              type="button"
-              onClick={locateUser}
-              disabled={findingLocation}
-              className="mymenders-map-control w-[116px] px-4"
-              title="Near me"
-              aria-label="Find nearby menders"
-            >
-              {findingLocation ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#8a877d]" /> : <Navigation className="h-4 w-4 shrink-0" />}
-              <span className="ml-2 text-xs">Near me</span>
-            </button>
-          </div>
-
-          <div className="absolute right-4 top-[4.5rem] z-10 flex flex-col items-end gap-2 md:bottom-6 md:right-6 md:top-auto">
-            <div className="mymenders-map-control-group">
-              <button
-                type="button"
-                onClick={() => {
-                  const map = mapInstanceRef.current;
-                  if (!map) return;
-                  map.zoomIn();
-                }}
-                className="mymenders-map-control h-11 w-11 rounded-none shadow-none"
-                aria-label="Zoom in"
-              >
-                <Plus className="w-5 h-5" />
-              </button>
-
-              <div className="h-px bg-brand-dark-text/15" />
-
-              <button
-                type="button"
-                onClick={() => {
-                  const map = mapInstanceRef.current;
-                  if (!map) return;
-                  map.zoomOut();
-                }}
-                className="mymenders-map-control h-11 w-11 rounded-none shadow-none"
-                aria-label="Zoom out"
-              >
-                <Minus className="w-5 h-5" />
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                const map = mapInstanceRef.current;
-                if (!map) return;
-                map.flyTo({
-                  center: [DEFAULT_CENTER[1], DEFAULT_CENTER[0]],
-                  zoom: GLOBAL_ZOOM,
-                  pitch: 0,
-                  bearing: 0,
-                  duration: 700,
-                });
-              }}
-              className="mymenders-map-control h-11 w-11"
-              aria-label="Reset to globe view"
-            >
-              <Globe className="w-5 h-5" />
-            </button>
-
-            <div className="relative" ref={styleMenuRef}>
-              <button
-                type="button"
-                onClick={() => setIsStyleMenuOpen((value) => !value)}
-                className="mymenders-map-control h-11 w-11"
-                aria-label="Map style"
-                aria-expanded={isStyleMenuOpen}
-              >
-                <Cog className="w-5 h-5" />
-              </button>
-
-              {isStyleMenuOpen && (
-                <div className="mymenders-map-menu mymenders-cloth-panel absolute right-0 top-full z-20 mt-2 w-48 overflow-hidden rounded-2xl border bg-cloth/95 p-1.5 backdrop-blur-sm md:bottom-full md:top-auto md:mb-2 md:mt-0">
-                  {BASEMAP_STYLES.map((style) => (
-                    <button
-                      type="button"
-                      key={style.id}
-                      onClick={() => {
-                        setSelectedBasemapStyleId(style.id);
-                        setIsStyleMenuOpen(false);
-                      }}
-                      className={`w-full rounded-xl px-3 py-2 text-left text-sm transition-colors ${
-                        selectedBasemapStyleId === style.id
-                          ? 'bg-brand/20 text-[#2f3e39] '
-                          : 'text-[#3d403b] hover:bg-[#f3f4f6]'
-                      }`}
-                    >
-                      {style.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+          <label htmlFor="menders-search-mobile" className="sr-only">Search menders</label>
+          <input
+            id="menders-search-mobile"
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search menders…"
+            aria-label="Search menders"
+            className="mm-glass-input border-transparent bg-transparent py-1.5 pl-8 pr-3"
+          />
+        </div>
+        <div className="mm-glass rounded-xl p-0.5">
+          <button
+            type="button"
+            onClick={() => setIsFilterDrawerOpen((value) => !value)}
+            className="mm-glass-button"
+            aria-label="Filter menders"
+            aria-expanded={isFilterDrawerOpen}
+            aria-controls="vendor-filter-drawer"
+          >
+            <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+            {filterButtonBadge}
+          </button>
         </div>
       </div>
 
+      {isLoading && (
+        <div className="mm-glass absolute bottom-16 left-4 z-10 rounded-xl px-3 py-2 text-xs md:hidden" role="status" aria-live="polite">
+          Loading menders…
+        </div>
+      )}
+
+      {isFilterDrawerOpen && (
+        <div
+          id="vendor-filter-drawer"
+          ref={filterDrawerRef}
+          className={`mm-glass fixed inset-x-0 bottom-0 z-30 flex max-h-[70vh] flex-col rounded-b-none md:absolute md:bottom-4 md:top-24 md:max-h-none md:w-[300px] md:rounded-b-[18px] ${
+            isPanelOpen ? 'md:left-[424px]' : 'md:left-[92px]'
+          }`}
+          aria-labelledby="vendor-filter-drawer-title"
+          onWheel={(event) => {
+            event.stopPropagation();
+          }}
+        >
+          <div className="flex shrink-0 items-center justify-between px-4 pb-1 pt-3">
+            <h2 id="vendor-filter-drawer-title" className="text-[15px] text-[#ece8e1]">Filter menders</h2>
+            <button
+              type="button"
+              onClick={() => setIsFilterDrawerOpen(false)}
+              className="flex h-8 w-8 items-center justify-center rounded-full text-[#9a958b] transition-colors hover:bg-white/10 hover:text-white"
+              aria-label="Close filters"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+
+          <div className="mm-dark-scroll min-h-0 flex-1 overflow-y-auto px-4 py-2">
+            {FILTER_GROUPS.map(({ key, label, options }) => (
+              <section key={key} className="border-b border-white/10 py-3 first:pt-1 last:border-b-0">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <h3 className="text-[11px] uppercase tracking-wide text-[#9a958b]">{label}</h3>
+                  {selectedFilters[key].length ? (
+                    <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-[#bdb8ae]">
+                      {selectedFilters[key].length}
+                    </span>
+                  ) : null}
+                </div>
+
+                <div className="flex flex-wrap gap-1.5">
+                  {options.map((option) => {
+                    const checked = selectedFilters[key].includes(option.id);
+                    return (
+                      <button
+                        key={`${key}-${option.id}`}
+                        type="button"
+                        onClick={() => toggleFilterOption(key, option.id)}
+                        aria-pressed={checked}
+                        className={`inline-flex max-w-full items-center rounded-full border px-3 py-1.5 text-xs leading-tight transition-colors ${
+                          checked
+                            ? 'border-[#efe9dd] bg-[#efe9dd] text-[#171b17]'
+                            : 'border-white/15 text-[#bdb8ae] hover:border-white/30 hover:text-white'
+                        }`}
+                      >
+                        <span className="min-w-0 truncate">{option.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+
+          <div className="shrink-0 p-3">
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              disabled={!hasSearchOrFilters}
+              className="flex h-10 w-full items-center justify-center rounded-xl border border-white/15 text-sm text-[#ece8e1] transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Clear search and filters
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* View + zoom controls */}
+      <div className="absolute bottom-16 right-4 z-10 flex items-center gap-2 md:bottom-8 md:right-6">
+        <div className="mm-glass flex gap-1 rounded-2xl p-1">
+          <button
+            type="button"
+            onClick={() => {
+              const map = mapInstanceRef.current;
+              if (!map) return;
+              map.flyTo({
+                center: [DEFAULT_CENTER[1], DEFAULT_CENTER[0]],
+                zoom: GLOBAL_ZOOM,
+                pitch: 0,
+                bearing: 0,
+                duration: 700,
+              });
+            }}
+            className="mm-glass-button"
+            aria-label="Reset to globe view"
+            title="Globe view"
+          >
+            <Globe className="h-5 w-5" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={locateUser}
+            disabled={findingLocation}
+            className="mm-glass-button md:hidden"
+            aria-label="Find nearby menders"
+          >
+            {findingLocation ? (
+              <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+            ) : (
+              <LocateFixed className="h-5 w-5" aria-hidden="true" />
+            )}
+          </button>
+        </div>
+
+        <div className="mm-glass flex gap-1 rounded-2xl p-1">
+          <button
+            type="button"
+            onClick={() => mapInstanceRef.current?.zoomOut()}
+            className="mm-glass-button"
+            aria-label="Zoom out"
+          >
+            <Minus className="h-5 w-5" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={() => mapInstanceRef.current?.zoomIn()}
+            className="mm-glass-button"
+            aria-label="Zoom in"
+          >
+            <Plus className="h-5 w-5" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -12,6 +12,8 @@ export function Navbar() {
   const navigate = useNavigate();
 
   const isAbout = pathname === '/' || pathname === '/about';
+  // The map page is full-bleed: the bar floats as dark glass pills over the map.
+  const isMap = pathname === '/map';
 
   useEffect(() => {
     if (!isOpen) return;
@@ -60,20 +62,32 @@ export function Navbar() {
 
   return (
     <nav
-      className={`fixed top-0 left-0 right-0 z-[1000] bg-brand-dark/95 text-[var(--mm-text)] ${isOpen ? '' : 'backdrop-blur-sm'}`}
+      className={`fixed top-0 left-0 right-0 z-[1000] ${
+        isMap
+          ? 'pointer-events-none bg-transparent text-[#ece8e1] [&_a]:pointer-events-auto [&_button]:pointer-events-auto'
+          : `bg-brand-dark/95 text-[var(--mm-text)] ${isOpen ? '' : 'backdrop-blur-sm'}`
+      }`}
     >
       <div className="px-[30px]">
         <div className="flex justify-between h-20">
           <div className="flex items-center">
-            <NavLink to="/" className="flex items-center gap-3">
-              <BrandLogo className="h-6 w-6 shrink-0 md:h-[29px] md:w-[29px]" color="var(--color-brand-dark-text)" />
-              <span className="mymenders-logo-wordmark text-2xl mymenders-logo-font text-brand-dark-text md:text-[29px]">
+            <NavLink to="/" className={`flex items-center gap-3 ${isMap ? 'mm-glass rounded-2xl px-4 py-2.5' : ''}`}>
+              <BrandLogo
+                className={`shrink-0 ${isMap ? 'h-[22px] w-[22px]' : 'h-6 w-6 md:h-[29px] md:w-[29px]'}`}
+                color={isMap ? '#ece8e1' : 'var(--color-brand-dark-text)'}
+              />
+              {/* scaleX(1.24) on the wordmark doesn't widen its layout box; reserve the extra width inside the pill. */}
+              <span
+                className={`mymenders-logo-wordmark mymenders-logo-font ${
+                  isMap ? 'mr-[1.45em] text-[22px] text-[#ece8e1]' : 'text-2xl text-brand-dark-text md:text-[29px]'
+                }`}
+              >
                 My Mender
               </span>
             </NavLink>
           </div>
 
-          <div className="hidden md:flex h-20 items-stretch gap-2">
+          <div className={`hidden md:flex items-stretch gap-2 ${isMap ? 'mm-glass my-4 h-12 rounded-2xl pl-2 pr-1.5' : 'h-20'}`}>
             <NavLink
               to="/#about-mission"
               className="group relative inline-flex items-center justify-center px-3 text-sm "
@@ -107,7 +121,7 @@ export function Navbar() {
             <div className="flex items-center pl-3">
               <button
                 onClick={() => navigate('/add')}
-                className="flex h-11 cursor-pointer items-center justify-center rounded-full bg-white px-4 text-brand-dark-on shadow-[var(--mm-shadow-subtle)] transition-colors hover:bg-[#d9dfdb]"
+                className={`flex ${isMap ? 'h-9 rounded-xl' : 'h-11 rounded-full'} cursor-pointer items-center justify-center bg-white px-4 text-brand-dark-on shadow-[var(--mm-shadow-subtle)] transition-colors hover:bg-[#d9dfdb]`}
                 title="Add Mender"
                 aria-label="Add mender"
               >
@@ -121,7 +135,11 @@ export function Navbar() {
             <button
               ref={menuTriggerRef}
               onClick={() => setIsOpen(!isOpen)}
-              className="rounded-full p-2 opacity-80 transition-colors hover:bg-black/5 hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--mm-text)]"
+              className={`p-2 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
+                isMap
+                  ? 'mm-glass rounded-xl focus-visible:outline-[#ece8e1]'
+                  : 'rounded-full opacity-80 hover:bg-black/5 hover:opacity-100 focus-visible:outline-[var(--mm-text)]'
+              }`}
               aria-label={isOpen ? 'Close navigation menu' : 'Open navigation menu'}
               aria-expanded={isOpen}
               aria-controls="mobile-navigation-menu"
@@ -139,7 +157,7 @@ export function Navbar() {
         role="dialog"
         aria-modal="true"
         aria-label="Primary navigation"
-        className="fixed inset-0 z-[1001] h-[100dvh] w-full overflow-y-auto overscroll-contain bg-brand-dark text-[var(--mm-text)] md:hidden"
+        className="pointer-events-auto fixed inset-0 z-[1001] h-[100dvh] w-full overflow-y-auto overscroll-contain bg-brand-dark text-[var(--mm-text)] md:hidden"
       >
         <div className="flex min-h-full flex-col">
           <div className="flex h-20 shrink-0 items-center justify-between px-[30px]">
