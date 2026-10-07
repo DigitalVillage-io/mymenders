@@ -23,10 +23,10 @@ const OVERVIEW_DATASETS = {
 };
 
 const PALETTE = {
-  land: '#efe9dd',
-  landShade: '#e6dfd1',
-  water: '#e0d9cb',
-  waterway: '#d6cebe',
+  land: '#e4ded2',
+  landShade: '#ded7ca',
+  water: '#f0ece5',
+  waterway: '#e3ddd1',
   building: '#e7e0d3',
   buildingOutline: '#d8d0c1',
   roadCasing: '#d9d1c2',
@@ -34,12 +34,14 @@ const PALETTE = {
   roadMajor: '#fbf8f2',
   rail: '#d3cbbb',
   border: '#8f8778',
-  coastline: '#9d9483',
+  coastline: '#8c8371',
   labelStrong: '#4a443a',
   label: '#6b6457',
   labelSoft: '#8c8577',
-  waterLabel: '#8a8272',
-  halo: 'rgba(239, 233, 221, 0.6)',
+  waterLabel: '#968d7d',
+  coastShadow: 'rgba(74, 62, 44, 0.42)',
+  coastHighlight: 'rgba(255, 253, 248, 0.9)',
+  halo: 'rgba(236, 231, 222, 0.6)',
 };
 
 const HILLSHADE_LAYER_ID = 'plaster-hillshade';
@@ -54,26 +56,59 @@ const hillshadeLayer = {
     'hillshade-illumination-direction': [270, 315, 0, 45],
     'hillshade-illumination-altitude': [30, 30, 30, 30],
     'hillshade-highlight-color': ['#fffdf8', '#fbf7ef', '#fbf7ef', '#fffdf8'],
-    'hillshade-shadow-color': ['#8e8471', '#9f9581', '#aaa18f', '#9f9581'],
+    'hillshade-shadow-color': ['#837864', '#958a76', '#a39a88', '#958a76'],
     // Strong relief on the globe, fading out at street level so it never
     // competes with the roads people use to place a pin precisely.
     'hillshade-exaggeration': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 0.8, 11, 0.35, 15, 0.15],
   },
 };
 
-const coastlineLayer = {
-  id: 'plaster-coastline',
-  type: 'line',
-  source: 'openmaptiles',
+// Raised plaster coastline: a soft shadow down-right and a highlight up-left
+// of the edge (light comes from the upper left), then a fine crisp line.
+const embossedCoastline = (idPrefix, source, extra) => [
+  {
+    id: `${idPrefix}-shadow`,
+    type: 'line',
+    source,
+    ...extra,
+    paint: {
+      'line-color': PALETTE.coastShadow,
+      'line-width': 2.6,
+      'line-blur': 1.6,
+      'line-translate': [1.2, 1.4],
+    },
+  },
+  {
+    id: `${idPrefix}-highlight`,
+    type: 'line',
+    source,
+    ...extra,
+    paint: {
+      'line-color': PALETTE.coastHighlight,
+      'line-width': 1.4,
+      'line-blur': 0.6,
+      'line-translate': [-0.8, -0.9],
+    },
+  },
+  {
+    id: idPrefix,
+    type: 'line',
+    source,
+    ...extra,
+    paint: {
+      'line-color': PALETTE.coastline,
+      'line-width': ['interpolate', ['linear'], ['zoom'], 0, 0.8, 6, 1, 12, 1.2],
+      'line-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.95, 12, 0.5],
+    },
+  },
+];
+
+const coastlineLayers = embossedCoastline('plaster-coastline', 'openmaptiles', {
   'source-layer': 'water',
   minzoom: OVERVIEW_MAX_ZOOM,
   filter: ['==', ['geometry-type'], 'Polygon'],
-  paint: {
-    'line-color': PALETTE.coastline,
-    'line-width': ['interpolate', ['linear'], ['zoom'], 0, 0.6, 6, 1, 12, 1.4],
-    'line-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.9, 12, 0.5],
-  },
-};
+});
+
 
 const overviewLayers = [
   {
@@ -83,13 +118,7 @@ const overviewLayers = [
     maxzoom: OVERVIEW_MAX_ZOOM,
     paint: { 'fill-color': PALETTE.water },
   },
-  {
-    id: 'plaster-overview-coastline',
-    type: 'line',
-    source: 'ne-ocean',
-    maxzoom: OVERVIEW_MAX_ZOOM,
-    paint: { 'line-color': PALETTE.coastline, 'line-width': 0.6, 'line-opacity': 0.9 },
-  },
+  ...embossedCoastline('plaster-overview-coastline', 'ne-ocean', { maxzoom: OVERVIEW_MAX_ZOOM }),
   {
     id: 'plaster-overview-borders',
     type: 'line',
@@ -114,7 +143,9 @@ const restyleLayer = (layer) => {
   const { id, type } = layer;
 
   if (id === 'background') return setPaint(layer, { 'background-color': PALETTE.land });
-  if (id === 'water') return setPaint(layer, { 'fill-color': PALETTE.water });
+  if (id === 'water') {
+    return setPaint(layer, { 'fill-color': PALETTE.water });
+  }
   if (id === 'waterway') return setPaint(layer, { 'line-color': PALETTE.waterway });
   if (id === 'park' || id.startsWith('landcover_wood') || id.startsWith('landuse_')) {
     return setPaint(layer, { 'fill-color': PALETTE.landShade });
@@ -156,10 +187,16 @@ const restyleLayer = (layer) => {
     layer.minzoom = Math.max(layer.minzoom ?? 0, LABEL_MIN_ZOOMS[id]);
   }
 
-  const halo = { 'text-halo-color': PALETTE.halo, 'text-halo-width': 1.2, 'text-halo-blur': 0.5 };
+  // No halo at globe zoom: labels that spill past the globe's edge then vanish
+  // into the night sky instead of floating there on a cream outline.
+  const halo = {
+    'text-halo-color': PALETTE.halo,
+    'text-halo-width': ['interpolate', ['linear'], ['zoom'], 3.5, 0, 5, 1.2],
+    'text-halo-blur': 0.5,
+  };
 
   if (id.startsWith('water_name') || id === 'waterway_line_label') {
-    setLayout(layer, { 'text-transform': 'uppercase', 'text-letter-spacing': 0.3 });
+    setLayout(layer, { 'text-transform': 'uppercase', 'text-letter-spacing': 0.45, 'text-line-height': 1.6 });
     return setPaint(layer, { ...halo, 'text-color': PALETTE.waterLabel });
   }
   if (id.startsWith('label_country')) {
@@ -253,7 +290,7 @@ const landFills = style.layers.filter(
 );
 const rest = style.layers.filter((layer) => layer !== waterLayer && !landFills.includes(layer));
 const [background, ...others] = rest;
-style.layers = [background, ...landFills, hillshadeLayer, waterLayer, ...overviewLayers, coastlineLayer, ...others];
+style.layers = [background, ...landFills, hillshadeLayer, waterLayer, ...overviewLayers, ...coastlineLayers, ...others];
 
 await mkdir(OUTPUT_DIR, { recursive: true });
 await Promise.all([

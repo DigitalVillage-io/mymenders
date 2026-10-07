@@ -455,6 +455,18 @@ body {
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
 }
 
+/* Lighting over the plaster globe, positioned on the globe's outline by
+   MapPage: a soft highlight up-left and shading toward the rim. */
+.mymenders-globe-lighting {
+  position: absolute;
+  display: none;
+  border-radius: 50%;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 34% 30%, rgba(255, 252, 244, 0.5) 0%, rgba(255, 252, 244, 0.14) 30%, rgba(255, 252, 244, 0) 50%),
+    radial-gradient(circle at 42% 40%, rgba(46, 36, 24, 0) 55%, rgba(46, 36, 24, 0.16) 80%, rgba(32, 25, 16, 0.45) 100%);
+}
+
 /* Night sky behind the Plaster globe; MapLibre leaves the area around the
    sphere transparent, so the container background shows through. */
 .mymenders-starfield {

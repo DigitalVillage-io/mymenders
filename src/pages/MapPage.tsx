@@ -480,6 +480,34 @@ const applyGlobeProjectionIfSupported = (map: maplibregl.Map) => {
 };
 
 const toLngLat = (latitude: number, longitude: number) => [longitude, latitude] as [number, number];
+
+// Sphere lighting for the plaster globe (.mymenders-globe-lighting): fully on
+// at globe zoom, faded out by the time the globe edge leaves the screen.
+const GLOBE_LIGHTING_FADE_START_ZOOM = 3.5;
+const GLOBE_LIGHTING_MAX_ZOOM = 5;
+
+const pointEastOf = (center: maplibregl.LngLat, distanceDegrees: number): [number, number] => {
+  const latitude = toRadians(center.lat);
+  const distance = toRadians(distanceDegrees);
+  const destinationLatitude = Math.asin(Math.sin(latitude) * Math.cos(distance));
+  const destinationLongitude =
+    toRadians(center.lng) +
+    Math.atan2(Math.sin(distance) * Math.cos(latitude), Math.cos(distance) - Math.sin(latitude) * Math.sin(destinationLatitude));
+  return [(destinationLongitude * 180) / Math.PI, (destinationLatitude * 180) / Math.PI];
+};
+
+// The globe's outline on screen: walking away from the centre over the sphere,
+// a point's projected distance from the centre peaks exactly at the silhouette.
+const getGlobeScreenCircle = (map: maplibregl.Map) => {
+  const center = map.getCenter();
+  const origin = map.project(center);
+  let radius = 0;
+  for (let distance = 45; distance <= 90; distance += 0.5) {
+    const point = map.project(pointEastOf(center, distance));
+    radius = Math.max(radius, Math.hypot(point.x - origin.x, point.y - origin.y));
+  }
+  return { x: origin.x, y: origin.y, radius };
+};
 const getVendorCoordinates = (vendor: Vendor): [number, number] | null => {
   const latitude = parseCoordinate(vendor.latitude);
   const longitude = parseCoordinate(vendor.longitude);
@@ -722,6 +750,7 @@ export function MapPage() {
   const [mapBounds, setMapBounds] = useState<maplibregl.LngLatBounds | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
+  const globeLightingRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<maplibregl.Map | null>(null);
   const styleMenuRef = useRef<HTMLDivElement>(null);
   const filterButtonRef = useRef<HTMLButtonElement>(null);
@@ -1023,10 +1052,38 @@ export function MapPage() {
       setMapBounds(map.getBounds());
     };
 
+    let lightingFrame = 0;
+    const updateGlobeLighting = () => {
+      cancelAnimationFrame(lightingFrame);
+      lightingFrame = requestAnimationFrame(() => {
+        const element = globeLightingRef.current;
+        if (!element) return;
+
+        const zoom = map.getZoom();
+        const isPlaster = activeBasemapStyleIdRef.current === 'plaster';
+        if (!isPlaster || zoom >= GLOBE_LIGHTING_MAX_ZOOM) {
+          element.style.display = 'none';
+          return;
+        }
+
+        const { x, y, radius } = getGlobeScreenCircle(map);
+        element.style.display = 'block';
+        element.style.left = `${x - radius}px`;
+        element.style.top = `${y - radius}px`;
+        element.style.width = element.style.height = `${radius * 2}px`;
+        element.style.opacity = String(
+          Math.min(1, Math.max(0, (GLOBE_LIGHTING_MAX_ZOOM - zoom) / (GLOBE_LIGHTING_MAX_ZOOM - GLOBE_LIGHTING_FADE_START_ZOOM))),
+        );
+      });
+    };
+
     map.on('click', handleMapClick);
     map.on('mousemove', handlePointerMove);
     map.on('mouseout', clearPointerCursor);
     map.on('moveend', handleMoveEnd);
+    map.on('move', updateGlobeLighting);
+    map.on('resize', updateGlobeLighting);
+    map.on('style.load', updateGlobeLighting);
 
     mapInstanceRef.current = map;
 
@@ -1036,6 +1093,10 @@ export function MapPage() {
       map.off('mousemove', handlePointerMove);
       map.off('mouseout', clearPointerCursor);
       map.off('moveend', handleMoveEnd);
+      map.off('move', updateGlobeLighting);
+      map.off('resize', updateGlobeLighting);
+      map.off('style.load', updateGlobeLighting);
+      cancelAnimationFrame(lightingFrame);
       map.remove();
       mapInstanceRef.current = null;
       setIsMapReady(false);
@@ -1159,6 +1220,7 @@ export function MapPage() {
           ref={mapContainerRef}
           className={`h-full w-full ${selectedBasemapStyleId === 'plaster' ? 'mymenders-starfield' : ''}`}
         />
+        <div ref={globeLightingRef} className="mymenders-globe-lighting" aria-hidden="true" />
       </div>
 
       {/* Desktop tool rail */}
