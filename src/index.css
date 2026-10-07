@@ -389,6 +389,24 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
+/* Night sky behind the Plaster globe; MapLibre leaves the area around the
+   sphere transparent, so the container background shows through. */
+.mymenders-starfield {
+  background-color: #050506;
+  background-image:
+    radial-gradient(1px 1px at 12% 18%, rgba(255, 255, 255, 0.8), transparent 60%),
+    radial-gradient(1px 1px at 27% 72%, rgba(255, 255, 255, 0.6), transparent 60%),
+    radial-gradient(1.5px 1.5px at 41% 9%, rgba(255, 255, 255, 0.7), transparent 60%),
+    radial-gradient(1px 1px at 58% 88%, rgba(255, 255, 255, 0.5), transparent 60%),
+    radial-gradient(1px 1px at 69% 31%, rgba(255, 255, 255, 0.7), transparent 60%),
+    radial-gradient(1.5px 1.5px at 83% 64%, rgba(255, 255, 255, 0.8), transparent 60%),
+    radial-gradient(1px 1px at 91% 12%, rgba(255, 255, 255, 0.6), transparent 60%),
+    radial-gradient(1px 1px at 7% 49%, rgba(255, 255, 255, 0.5), transparent 60%),
+    radial-gradient(1px 1px at 52% 46%, rgba(255, 255, 255, 0.4), transparent 60%),
+    radial-gradient(1px 1px at 36% 33%, rgba(255, 255, 255, 0.5), transparent 60%);
+  background-size: 420px 420px;
+}
+
 .maplibregl-popup-content {
   border-radius: 10px;
   padding: 0;
