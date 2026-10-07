@@ -6,7 +6,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handleAdminRequest, pool } from './api/lib/admin.js';
-import { insertEmailSub, insertVendor, updateVendorAddress, ValidationError } from './api/lib/db.js';
+import { insertEmailSub, insertVendor, publicVendor, ValidationError } from './api/lib/db.js';
 
 const PORT = Number(process.env.PORT) || 3003;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -49,12 +49,14 @@ const handleApiError = (err, fallbackMessage, notFoundStatus = 400) => {
 
 async function handleVendors(request) {
   try {
+    // Mirrors api/vendors.ts: only publicVendor() shapes leave this endpoint,
+    // so approximate locations never expose the private address/coordinates.
     if (request.method === 'GET') {
-      const result = await pool.query("SELECT * FROM vendors WHERE status = 'active' ORDER BY id");
-      return json(result.rows);
+      const result = await pool.query("SELECT * FROM vendors WHERE status = 'active' AND is_deleted = false ORDER BY id");
+      return json(result.rows.map(publicVendor));
     }
-    if (request.method === 'POST') return json(await insertVendor(pool, await request.json()), 201);
-    if (request.method === 'PATCH') return json(await updateVendorAddress(pool, await request.json()));
+    if (request.method === 'POST') return json(publicVendor(await insertVendor(pool, await request.json())), 201);
+    // Location updates are admin-only (see api/vendors.ts).
     return json({ error: 'Method not allowed' }, 405);
   } catch (err) {
     return handleApiError(err, 'Failed to handle vendors request', 404);
