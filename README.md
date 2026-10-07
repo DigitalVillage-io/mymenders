@@ -26,6 +26,19 @@ Set these values in `.env.local`:
 - `ADMIN_INITIAL_USERNAME`, `ADMIN_INITIAL_PASSWORD`, and `ADMIN_JWT_SECRET` —
   required for the admin workspace
 
+### Local database (Docker)
+
+`docker-compose.yml` runs PostgreSQL 17 on port 5433. Load a `pg_dump` into it
+(custom `.dump` or plain `.sql`; this drops and recreates the local database):
+
+```sh
+scripts/db-restore.sh path/to/mymender_dump.dump
+```
+
+Then set `DATABASE_URL="postgresql://mymender:mymender@localhost:5433/mymender"`
+in `.env.local`. Dumps already include the schema, so skip the migration step
+below unless a migration is newer than the dump. Never commit dump files.
+
 Apply the database migrations:
 
 ```sh
