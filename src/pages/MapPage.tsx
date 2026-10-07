@@ -60,6 +60,33 @@ const BASEMAP_STYLES = [
 const DEFAULT_BASEMAP_STYLE_ID = 'plaster';
 const pinImageId = (color: string) => `vendor-pin-${color.replace('#', '').toLowerCase()}`;
 const PIN_COLORS = [...Object.values(STUDIO_TYPE_COLORS), STUDIO_TYPE_FALLBACK_COLOR];
+const TYPED_PIN_COLORS = Object.values(STUDIO_TYPE_COLORS);
+const clusterCountKey = (color: string) => `count_${color.replace('#', '').toLowerCase()}`;
+// Each cluster counts its menders per studio-type colour...
+const CLUSTER_TYPE_COUNTS = Object.fromEntries(
+  TYPED_PIN_COLORS.map((color) => [
+    clusterCountKey(color),
+    ['+', ['case', ['==', ['get', 'pinColor'], color], 1, 0]],
+  ]),
+);
+// ...and is filled with the most common one; menders without a type only
+// decide the colour when the cluster has no typed menders at all.
+const CLUSTER_COLOR_EXPRESSION: any = [
+  'case',
+  ...TYPED_PIN_COLORS.flatMap((color) => [
+    [
+      'all',
+      ['>', ['get', clusterCountKey(color)], 0],
+      ...TYPED_PIN_COLORS.filter((other) => other !== color).map((other) => [
+        '>=',
+        ['get', clusterCountKey(color)],
+        ['get', clusterCountKey(other)],
+      ]),
+    ],
+    color,
+  ]),
+  STUDIO_TYPE_FALLBACK_COLOR,
+];
 const PIN_IMAGE_EXPRESSION: any = [
   'match',
   ['get', 'pinColor'],
@@ -341,6 +368,7 @@ const ensureVendorLayers = async (map: maplibregl.Map) => {
       cluster: true,
       clusterMaxZoom: 14,
       clusterRadius: 56,
+      clusterProperties: CLUSTER_TYPE_COUNTS,
     });
   }
 
@@ -384,15 +412,7 @@ const ensureVendorLayers = async (map: maplibregl.Map) => {
       source: VENDOR_SOURCE_ID,
       filter: ['has', 'point_count'],
       paint: {
-        'circle-color': [
-          'step',
-          ['get', 'point_count'],
-          '#3a3936',
-          10,
-          '#2b2a2e',
-          25,
-          '#1b1b1d',
-        ],
+        'circle-color': CLUSTER_COLOR_EXPRESSION,
         'circle-radius': [
           'step',
           ['get', 'point_count'],
@@ -417,7 +437,7 @@ const ensureVendorLayers = async (map: maplibregl.Map) => {
       filter: ['has', 'point_count'],
       layout: {
         'text-field': ['get', 'point_count_abbreviated'],
-        'text-font': ['Open Sans Semibold'],
+        'text-font': ['Noto Sans Bold'],
         'text-size': 12,
       },
       paint: {
