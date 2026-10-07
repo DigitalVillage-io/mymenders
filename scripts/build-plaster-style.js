@@ -200,6 +200,24 @@ const writeOverviewDataset = async (fileName) => {
   await writeFile(new URL(`${fileName}.geojson`, OUTPUT_DIR), JSON.stringify(slim));
 };
 
+// Night sky behind the globe (see .mymenders-starfield in index.css). Seeded so
+// re-running the script produces the same sky.
+const writeStarfield = async (fileName, size, starCount, seed) => {
+  let state = seed;
+  const random = () => {
+    state = (state * 1664525 + 1013904223) % 4294967296;
+    return state / 4294967296;
+  };
+  const stars = Array.from({ length: starCount }, () => {
+    const bright = random() < 0.08;
+    const radius = bright ? 1 + random() * 0.6 : 0.35 + random() * 0.55;
+    const opacity = bright ? 0.85 + random() * 0.15 : 0.35 + random() * 0.45;
+    return `<circle cx="${(random() * size).toFixed(1)}" cy="${(random() * size).toFixed(1)}" r="${radius.toFixed(2)}" fill="#fff" fill-opacity="${opacity.toFixed(2)}"/>`;
+  });
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${stars.join('')}</svg>`;
+  await writeFile(new URL(fileName, OUTPUT_DIR), svg);
+};
+
 const response = await fetch(SOURCE_STYLE_URL);
 if (!response.ok) throw new Error(`Failed to fetch ${SOURCE_STYLE_URL}: ${response.status}`);
 const style = await response.json();
@@ -238,6 +256,10 @@ const [background, ...others] = rest;
 style.layers = [background, ...landFills, hillshadeLayer, waterLayer, ...overviewLayers, coastlineLayer, ...others];
 
 await mkdir(OUTPUT_DIR, { recursive: true });
-await Promise.all(Object.values(OVERVIEW_DATASETS).map(writeOverviewDataset));
+await Promise.all([
+  ...Object.values(OVERVIEW_DATASETS).map(writeOverviewDataset),
+  writeStarfield('stars-near.svg', 560, 90, 7),
+  writeStarfield('stars-far.svg', 380, 70, 13),
+]);
 await writeFile(OUTPUT_PATH, `${JSON.stringify(style, null, 2)}\n`);
 console.log(`Wrote ${OUTPUT_PATH.pathname} (${style.layers.length} layers)`);
